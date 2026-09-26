@@ -5,6 +5,7 @@ import CadenceCore
 struct HomeView: View {
     @Environment(AppStore.self) private var store
     @State private var showImporter = false
+    @State private var isDropTargeted = false
     @Binding var selectedTab: RootTab
 
     private static let midiTypes: [UTType] = {
@@ -45,14 +46,51 @@ struct HomeView: View {
             .frame(maxHeight: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 8)
+
+            // Le contour qui confirme qu'on peut LÂCHER ici — sans lui, rien ne distingue "je
+            // survole une cible de dépôt" de "je survole juste l'app", au clavier comme à la
+            // souris depuis le Finder du Mac.
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .strokeBorder(C.coral, style: StrokeStyle(lineWidth: 3, dash: [10, 8]))
+                    .padding(12)
+                    .allowsHitTesting(false)
+            }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: Self.midiTypes) { result in
             guard case .success(let url) = result else { return }
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { return }
-            store.importMIDI(from: data, fileName: url.lastPathComponent)
+            importFile(at: url)
         }
+        // DÉPÔT DIRECT depuis le Finder du Mac sur la fenêtre du simulateur — un chemin
+        // INDÉPENDANT du sélecteur de documents et de l'app Fichiers, tous deux sujets au même
+        // bogue de glisser-déposer du simulateur ("Simulator device failed to open…"). Un
+        // `.onDrop` posé sur la vue elle-même est géré par UIKit directement, sans passer par
+        // cette UI système capricieuse.
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
+    }
+
+    private func importFile(at url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return }
+        store.importMIDI(from: data, fileName: url.lastPathComponent)
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) })
+        else { return false }
+
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            let url: URL?
+            switch item {
+            case let data as Data: url = URL(dataRepresentation: data, relativeTo: nil)
+            case let direct as URL: url = direct
+            default: url = nil
+            }
+            guard let url else { return }
+            DispatchQueue.main.async { importFile(at: url) }
+        }
+        return true
     }
 
     // MARK: – En-tête
@@ -84,6 +122,13 @@ struct HomeView: View {
                 Text("Un fichier MIDI depuis ton appareil, jamais envoyé ailleurs.")
                     .font(.system(size: 14)).foregroundStyle(C.inkFaint)
                     .multilineTextAlignment(.center)
+                // Le sélecteur de documents ET l'app Fichiers dépendent tous les deux du
+                // glisser-déposer du simulateur, connu pour y échouer — ce dépôt direct sur
+                // l'app (voir `.onDrop` plus bas) est le chemin qui n'en dépend pas.
+                Text("Tu peux aussi glisser un fichier .mid directement ici depuis le Finder.")
+                    .font(.system(size: 12)).foregroundStyle(C.inkFaint.opacity(0.8))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 2)
             }
         case .analyzing(let progress):
             VStack(spacing: 14) {

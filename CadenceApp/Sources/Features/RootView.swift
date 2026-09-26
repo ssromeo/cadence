@@ -78,44 +78,37 @@ struct RootView: View {
         }
     }
 
-    /// Barre du bas, façon Liquid Glass : icône AU-DESSUS du libellé, les trois toujours
-    /// visibles — plus d'accordéon qui n'affichait le texte que sur l'onglet actif. Celui-ci se
-    /// distingue par la couleur (bleu système) et une pastille neutre derrière lui, jamais par
-    /// une mise en page qui change de forme d'un onglet à l'autre.
+    /// Barre du bas, en pilule — trois destinations : l'accueil (importer), les exercices
+    /// générés, et les gammes (le pilier "pas de MIDI"). La courante se distingue par une
+    /// pastille plus sombre, pas par un simple changement de couleur d'icône — plus facile à
+    /// repérer en un coup d'œil, sans avoir à lire le libellé.
     private var navBar: some View {
-        // LARGEUR EXPLICITE par onglet, jamais `.frame(maxWidth: .infinity)` sur des voisins
-        // dans ce `HStack` — même règle que partout ailleurs dans le projet (voir
-        // `QuizView.choiceGrid`) : plusieurs `Button{Text}` flexibles voisins se sont déjà
-        // affichés vides sur ce SDK.
-        let barWidth = UIScreen.main.bounds.width - 48
-        let tabWidth = (barWidth - 12) / 3
-        return HStack(spacing: 6) {
-            navItem(.home, icon: "house", label: "Accueil", width: tabWidth)
-            navItem(.quiz, icon: "sparkles.rectangle.stack", label: "Exercices", width: tabWidth)
-            navItem(.scales, icon: "tuningfork", label: "Gammes", width: tabWidth)
+        HStack(spacing: 4) {
+            navItem(.home, icon: "house.fill", label: "Accueil")
+            navItem(.quiz, icon: "sparkles.rectangle.stack.fill", label: "Exercices")
+            navItem(.scales, icon: "tuningfork", label: "Gammes")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 8)
-        .liquidGlass(radius: 30, tint: .white)
+        .padding(6)
+        .liquidGlass(radius: 30)
     }
 
-    private func navItem(_ target: RootTab, icon: String, label: String, width: CGFloat) -> some View {
+    private func navItem(_ target: RootTab, icon: String, label: String) -> some View {
         let isActive = tab == target
         return Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { tab = target }
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 20, weight: isActive ? .semibold : .regular))
-                Text(label).font(.system(size: 11, weight: isActive ? .semibold : .medium))
-            }
-            .foregroundStyle(isActive ? C.navActive : C.ink2)
-            .frame(width: width)
-            .padding(.vertical, 10)
-            .background {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 15, weight: .semibold))
                 if isActive {
-                    Capsule().fill(C.line)
-                        .transition(.opacity)
+                    Text(label).font(.system(size: 15, weight: .semibold))
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
+            }
+            .foregroundStyle(C.ink)
+            .padding(.horizontal, isActive ? 18 : 14)
+            .padding(.vertical, 14)
+            .background {
+                if isActive { Capsule().fill(C.creamDeep) }
             }
         }
         .buttonStyle(.plain)
