@@ -13,6 +13,7 @@
 		42B2186739AAEAC945BC733B /* Effects.metal in Sources */ = {isa = PBXBuildFile; fileRef = 14B3233DB071AFA7303C5A1B /* Effects.metal */; };
 		5418518244891AC437003765 /* ScalePathView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F99F89EA520CB2A7F430B32 /* ScalePathView.swift */; };
 		65F1720CD9451F2D051166A4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 163BC879FA4AD19920D40716 /* Assets.xcassets */; };
+		870F6A67DC10275BF818978F /* PianoOctavePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A718B0E7C33E9DC1048111 /* PianoOctavePicker.swift */; };
 		8B6E60A34EDB3908BC9A4B90 /* LiquidGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8456F76CAC1A34B2AD153D4D /* LiquidGlass.swift */; };
 		93D7FE598C0EEAAE49393514 /* StaffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FB3520F9BB99AA72427FB5A /* StaffView.swift */; };
 		957EBE9398CAF045800723E0 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A019A08CC97CF031302988 /* RootView.swift */; };
@@ -38,6 +39,7 @@
 		A66A6866A427577A0C6CDA83 /* CadenceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CadenceApp.swift; sourceTree = "<group>"; };
 		AF370E2EA9994976D6BEE2FC /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		BBEDE4F8C6F1D53C8BBD9DA2 /* TonePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TonePlayer.swift; sourceTree = "<group>"; };
+		E1A718B0E7C33E9DC1048111 /* PianoOctavePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PianoOctavePicker.swift; sourceTree = "<group>"; };
 		E30753305273AB4FC9F52FC2 /* Effects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Effects.swift; sourceTree = "<group>"; };
 		E6A019A08CC97CF031302988 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F41FECD76402840B31E84E2F /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 			children = (
 				F41FECD76402840B31E84E2F /* AppStore.swift */,
 				AF370E2EA9994976D6BEE2FC /* HomeView.swift */,
+				E1A718B0E7C33E9DC1048111 /* PianoOctavePicker.swift */,
 				0C69240D4EA5A39BE1FAD695 /* QuizView.swift */,
 				E6A019A08CC97CF031302988 /* RootView.swift */,
 				8F99F89EA520CB2A7F430B32 /* ScalePathView.swift */,
@@ -211,6 +214,7 @@
 				D0B048ECD08A1D4FA817E7D2 /* Effects.swift in Sources */,
 				311B4372E62DFF96A4958215 /* HomeView.swift in Sources */,
 				8B6E60A34EDB3908BC9A4B90 /* LiquidGlass.swift in Sources */,
+				870F6A67DC10275BF818978F /* PianoOctavePicker.swift in Sources */,
 				2A08D18B7243A1216ADFA20C /* QuizView.swift in Sources */,
 				957EBE9398CAF045800723E0 /* RootView.swift in Sources */,
 				5418518244891AC437003765 /* ScalePathView.swift in Sources */,

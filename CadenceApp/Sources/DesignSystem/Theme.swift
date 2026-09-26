@@ -14,6 +14,7 @@ enum C {
     static let apricot    = Color(hex: 0xF0A25C)
     static let coral      = Color(hex: 0xF0785C)
     static let lilac      = Color(hex: 0xB98CE0)
+    static let gold       = Color(hex: 0xC9A227)
 
     static let good       = Color(hex: 0x4E9A6B)
     static let goodSoft   = Color(hex: 0x4E9A6B).opacity(0.14)

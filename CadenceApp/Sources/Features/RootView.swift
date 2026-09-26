@@ -1,4 +1,5 @@
 import SwiftUI
+import CadenceCore
 
 enum RootTab: Hashable { case home, quiz, scales }
 
@@ -36,6 +37,14 @@ struct RootView: View {
             guard let mode = ProcessInfo.processInfo.environment["CADENCE_PREVIEW_QUIZ"] else { return }
             if mode == "scales" {
                 tab = .scales
+                return
+            }
+            // Saute directement dans UNE étape précise du parcours d'une gamme, sans avoir à
+            // simuler les appuis qui y mènent — utile pour vérifier un type d'exercice précis
+            // (mi majeur, choisi arbitrairement, sert juste de tonalité de test).
+            if mode.hasPrefix("focus:"), let focus = ExerciseGenerator.ScaleFocus(rawValue: String(mode.dropFirst(6))) {
+                store.startScaleFocus(key: MusicalKey(tonicPitchClass: 4, isMajor: true), focus: focus)
+                tab = .quiz
                 return
             }
             guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,

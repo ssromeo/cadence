@@ -245,15 +245,22 @@ public enum ExerciseGenerator {
     // MARK: - Le parcours d'une gamme : plusieurs ÉTAPES distinctes, pas un seul quiz fourre-tout
 
     /// Les arrêts du parcours d'une gamme — chacun une compétence à part, qu'un musicien
-    /// travaille séparément en pratique : reconnaître les notes, entendre/lire les intervalles
-    /// qu'elles forment avec la tonique, harmoniser chaque degré en accord, connaître l'armure,
-    /// et enfin tout mélanger contre la montre.
+    /// travaille séparément en pratique : nommer les notes, savoir situer un degré dans
+    /// l'échelle, entendre/lire les intervalles qu'elles forment avec la tonique, harmoniser
+    /// chaque degré en accord, connaître l'armure, et enfin tout mélanger contre la montre.
+    ///
+    /// **Pourquoi `noteNames` et `degrees` sont deux thèmes séparés, pas un seul "Notes" mélangé.**
+    /// Nommer une note ("do") et situer un degré ("le troisième degré") sont deux réflexes
+    /// différents, chacun avec sa propre logique de réponse — les mélanger dans la même série
+    /// oblige à changer de logique à chaque question, ce qui empêche justement l'automatisme
+    /// qu'une série homogène permet de construire en enchaînant vite.
     public enum ScaleFocus: String, CaseIterable, Sendable {
-        case notes, intervals, chords, keySignature, speed
+        case noteNames, degrees, intervals, chords, keySignature, speed
 
         public var displayName: String {
             switch self {
-            case .notes: "Notes"
+            case .noteNames: "Notes"
+            case .degrees: "Degrés"
             case .intervals: "Intervalles"
             case .chords: "Accords"
             case .keySignature: "Armure"
@@ -268,10 +275,10 @@ public enum ExerciseGenerator {
     public static func scaleExercises(key: MusicalKey, focus: ScaleFocus,
                                       rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
         switch focus {
-        case .notes:
-            var exercises = scaleDegreeExercises(key: key, rng: &rng) + noteSpellingExercises(key: key, rng: &rng)
-            exercises.shuffle(using: &rng)
-            return exercises
+        case .noteNames:
+            return noteSpellingExercises(key: key, rng: &rng).shuffled(using: &rng)
+        case .degrees:
+            return scaleDegreeExercises(key: key, rng: &rng).shuffled(using: &rng)
         case .intervals:
             return scaleIntervalExercises(key: key, rng: &rng)
         case .chords:

@@ -161,6 +161,17 @@ final class AppStore {
         if correct { score += 1 }
     }
 
+    /// Répondre en tapant directement sur un clavier plutôt qu'en choisissant parmi le QCM — voir
+    /// `PianoOctavePicker`. La bonne réponse n'est plus l'INDEX d'un choix parmi quatre, mais la
+    /// classe de hauteur réellement demandée : on la retrouve dans la première note de
+    /// l'exercice, celle que l'exercice de nommage affiche toujours seule.
+    func answerPianoTap(pitchClass: Int) {
+        guard let exercise = currentExercise, let pitch = exercise.notes.first else { return }
+        let correct = pitchClass == (((pitch % 12) + 12) % 12)
+        lastAnswerWasCorrect = correct
+        if correct { score += 1 }
+    }
+
     func advanceToNextExercise() {
         currentExerciseIndex += 1
         lastAnswerWasCorrect = nil

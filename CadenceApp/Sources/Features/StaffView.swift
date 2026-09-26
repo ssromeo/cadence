@@ -107,13 +107,16 @@ struct StaffView: View {
             let x = staffLeft + staffWidth * 0.55
             return [NotePlacement(pitch: pitches[0], x: x)]
         } else {
-            // Réparties dans le tiers médian du compas — pas jusqu'aux barres de mesure, qui
-            // doivent rester visuellement détachées des notes qu'elles encadrent.
-            let span = staffWidth * 0.56
-            let start = staffLeft + staffWidth * 0.30
+            // RAPPROCHÉES, pas étalées sur tout le compas — ces notes sont RÉELLEMENT voisines
+            // dans le morceau (voir `HarmonicAnalyzer.melodicLine` : seules des notes consécutives
+            // produisent un exercice d'intervalle). Les espacer sur 56 % de la largeur suggérait
+            // à tort un éloignement rythmique qui n'existe pas entre deux croches voisines — la
+            // distance à l'écran doit rester cohérente avec la proximité réelle des notes.
+            let span = staffWidth * 0.18
+            let center = staffLeft + staffWidth * 0.55
             return pitches.enumerated().map { i, pitch in
                 let t = pitches.count > 1 ? CGFloat(i) / CGFloat(pitches.count - 1) : 0
-                return NotePlacement(pitch: pitch, x: start + t * span)
+                return NotePlacement(pitch: pitch, x: center - span / 2 + t * span)
             }
         }
     }

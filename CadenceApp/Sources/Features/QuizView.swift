@@ -7,9 +7,16 @@ import UIKit
 /// jouent tous de la même façon : une question, éventuellement une portée, quatre choix, une
 /// correction. Voir `GeneratedExercise` côté Core pour le raisonnement complet — c'est cette
 /// abstraction qui évite d'avoir à écrire un écran par type d'exercice.
+/// Les deux façons de répondre à "quel est le nom de cette note" — un QCM classique, ou un
+/// clavier d'une octave qu'on tape directement. Seul ce type d'exercice propose le choix : un
+/// intervalle, un accord ou un degré n'ont pas d'équivalent "position sur un clavier" aussi direct.
+private enum AnswerMode { case qcm, keyboard }
+
 struct QuizView: View {
     @Environment(AppStore.self) private var store
     @State private var selected: Int?
+    @State private var pianoTappedClass: Int?
+    @State private var answerMode: AnswerMode = .qcm
 
     var body: some View {
         ZStack {
@@ -26,6 +33,33 @@ struct QuizView: View {
                 content(for: exercise)
             }
         }
+        // Réinitialiser aussi `answerMode` serait perdre le choix de l'utilisateur à CHAQUE
+        // question — on ne remet à zéro que l'état de RÉPONSE, pas le mode préféré.
+        .onChange(of: store.currentExerciseIndex) { _, _ in
+            selected = nil
+            pianoTappedClass = nil
+        }
+    }
+
+    /// La classe de hauteur réellement demandée par un exercice de nommage — `nil` pour tout
+    /// autre type d'exercice, où le clavier ne s'affiche de toute façon jamais.
+    private func correctPitchClass(for exercise: GeneratedExercise) -> Int? {
+        guard exercise.kind == .noteSpelling, let pitch = exercise.notes.first else { return nil }
+        return ((pitch % 12) + 12) % 12
+    }
+
+    /// `true` dès qu'une réponse a été donnée, quel qu'en soit le mode — QCM ou clavier.
+    private func hasAnswered(for exercise: GeneratedExercise) -> Bool {
+        selected != nil || pianoTappedClass != nil
+    }
+
+    /// Juste ou faux, tous modes confondus — `nil` tant qu'on n'a pas répondu.
+    private func isAnswerCorrect(for exercise: GeneratedExercise) -> Bool? {
+        if let selected { return exercise.isCorrect(selected) }
+        if let pianoTappedClass, let correct = correctPitchClass(for: exercise) {
+            return pianoTappedClass == correct
+        }
+        return nil
     }
 
     private var emptyState: some View {
@@ -77,17 +111,36 @@ struct QuizView: View {
                         .liquidGlass(radius: 20)
                 }
 
-                if let selected {
-                    feedback(for: exercise, selected: selected)
+                if let correct = isAnswerCorrect(for: exercise) {
+                    feedback(for: exercise, correct: correct)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
 
             Spacer(minLength: 20)
 
-            choiceGrid(for: exercise)
+            // Seul "quel est le nom de cette note" propose les DEUX façons de répondre — un
+            // intervalle, un accord ou un degré n'ont pas d'équivalent "position sur un clavier".
+            if exercise.kind == .noteSpelling, let key = store.displayKey {
+                modeToggle
+                    .padding(.bottom, 4)
+                if answerMode == .keyboard {
+                    PianoOctavePicker(key: key, tappedClass: pianoTappedClass,
+                                     correctClass: correctPitchClass(for: exercise)) { tapped in
+                        guard pianoTappedClass == nil else { return }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { pianoTappedClass = tapped }
+                        store.answerPianoTap(pitchClass: tapped)
+                        let correct = tapped == correctPitchClass(for: exercise)
+                        UINotificationFeedbackGenerator().notificationOccurred(correct ? .success : .error)
+                    }
+                } else {
+                    choiceGrid(for: exercise)
+                }
+            } else {
+                choiceGrid(for: exercise)
+            }
 
-            if selected != nil {
+            if hasAnswered(for: exercise) {
                 nextButton
                     .padding(.top, 14)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -96,7 +149,32 @@ struct QuizView: View {
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 24)
-        .onChange(of: store.currentExerciseIndex) { _, _ in selected = nil }
+    }
+
+    /// Le sélecteur QCM / Clavier — deux boutons à largeur EXPLICITE côte à côte, jamais
+    /// `.frame(maxWidth: .infinity)` (même règle que `choiceGrid`, deux voisins flexibles avec
+    /// `Text` se sont déjà affichés vides sur ce SDK).
+    private var modeToggle: some View {
+        let width = (contentWidth - 8) / 2
+        return HStack(spacing: 8) {
+            modeButton("QCM", mode: .qcm, width: width)
+            modeButton("Clavier", mode: .keyboard, width: width)
+        }
+    }
+
+    private func modeButton(_ title: String, mode: AnswerMode, width: CGFloat) -> some View {
+        let isActive = answerMode == mode
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { answerMode = mode }
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isActive ? .white : C.ink2)
+                .frame(width: width)
+                .padding(.vertical, 9)
+                .background(isActive ? C.ink : C.line, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Réponse correcte ou pas, l'écran ne dit jamais SEULEMENT "c'était X" — c'est un rappel de
@@ -104,8 +182,8 @@ struct QuizView: View {
     /// façon d'un parcours de langue) ; faux, ça s'explique (le POURQUOI, tiré de `explanation`,
     /// pas juste le nom qu'on a raté).
     @ViewBuilder
-    private func feedback(for exercise: GeneratedExercise, selected: Int) -> some View {
-        if exercise.isCorrect(selected) {
+    private func feedback(for exercise: GeneratedExercise, correct: Bool) -> some View {
+        if correct {
             CelebrationStamp(seed: exercise.id.hashValue)
         } else {
             VStack(alignment: .leading, spacing: 8) {

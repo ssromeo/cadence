@@ -29,7 +29,7 @@ struct ScalePathView: View {
     }
 
     static let levelsPerTheme = 3
-    static let themeOrder: [ExerciseGenerator.ScaleFocus] = [.notes, .intervals, .chords, .keySignature, .speed]
+    static let themeOrder: [ExerciseGenerator.ScaleFocus] = [.noteNames, .degrees, .intervals, .chords, .keySignature, .speed]
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -116,7 +116,8 @@ struct ScalePathView: View {
 
     private func color(for focus: ExerciseGenerator.ScaleFocus) -> Color {
         switch focus {
-        case .notes: C.apricot
+        case .noteNames: C.apricot
+        case .degrees: C.gold
         case .intervals: C.coral
         case .chords: C.lilac
         case .keySignature: C.ink2
@@ -127,10 +128,12 @@ struct ScalePathView: View {
     /// Un logo par catégorie qui se lit sans avoir besoin du libellé à côté : des touches de
     /// piano pour les accords (pas un simple empilement abstrait), un drapeau numéroté pour
     /// l'armure (l'idée de "compter" les altérations), une distance à deux flèches pour
-    /// l'intervalle — chacun renvoie à UNE seule idée, pas à la musique en général.
+    /// l'intervalle, une liste chiffrée pour les degrés (situer une position, pas nommer une
+    /// note) — chacun renvoie à UNE seule idée, pas à la musique en général.
     private func icon(for focus: ExerciseGenerator.ScaleFocus) -> String {
         switch focus {
-        case .notes: "music.note.list"
+        case .noteNames: "music.note.list"
+        case .degrees: "list.number"
         case .intervals: "arrow.up.arrow.down"
         case .chords: "pianokeys"
         case .keySignature: "number.square.fill"
@@ -204,6 +207,7 @@ private struct ThemeSection: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            sectionFrame
             connectingPath
             ForEach(nodes) { node in
                 nodeButton(node)
@@ -212,6 +216,23 @@ private struct ThemeSection: View {
         }
         .frame(width: sectionWidth, height: sectionHeight)
         .padding(.vertical, 8)
+    }
+
+    /// Le cadre en pointillés qui ENGLOBE les trois nœuds d'un même thème — le repère qui
+    /// manquait pour voir d'un coup d'œil "ces trois niveaux forment une section", au-delà du
+    /// halo de chaque nœud pris isolément (qui ne dit rien de ce qui l'entoure).
+    private var sectionFrame: some View {
+        let points = [center(for: 0), center(for: 1), center(for: 2)]
+        let margin = (primaryDiameter + 20) / 2 + 16
+        let minX = points.map(\.x).min()! - margin
+        let maxX = points.map(\.x).max()! + margin
+        let minY = points.map(\.y).min()! - margin
+        let maxY = points.map(\.y).max()! + margin
+
+        return RoundedRectangle(cornerRadius: 32, style: .continuous)
+            .strokeBorder(tint.opacity(0.22), style: StrokeStyle(lineWidth: 2, dash: [7, 7]))
+            .frame(width: maxX - minX, height: maxY - minY)
+            .position(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
     }
 
     /// Le vrai chemin qui manquait — un ruban en pointillés qui serpente d'un nœud à l'autre,
