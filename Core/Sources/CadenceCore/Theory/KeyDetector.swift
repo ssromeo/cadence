@@ -108,6 +108,27 @@ public enum KeyDetector {
         return detectKey(pitchClassWeights: weights)
     }
 
+    /// Détecte la tonalité EN VIGUEUR à un instant précis du morceau, pas sur l'ensemble du
+    /// fichier — pour un exercice tiré d'UN point précis d'un morceau qui module.
+    ///
+    /// **Le problème que ça résout.** `detectKey(from:)` fait la moyenne de tout le fichier :
+    /// pour un morceau qui change de tonalité en cours de route (la moitié en la majeur, la
+    /// moitié en la mineur relatif, par exemple — un vrai "key change" comme le nom du fichier
+    /// peut l'indiquer), le résultat global n'est ni l'une ni l'autre, et peut même retomber sur
+    /// une tonalité SANS ALTÉRATION alors que le passage réel en a plusieurs — l'armure ne se
+    /// dessine plus, et les dièses ou bémols bien réels de ce passage semblent "en trop" à
+    /// l'écran. En ne pondérant que les notes dans une fenêtre de quelques secondes autour de
+    /// l'instant demandé, chaque exercice reçoit la tonalité qui était RÉELLEMENT en vigueur là
+    /// où il a été prélevé.
+    public static func detectLocalKey(from notes: [MIDINoteEvent], around time: Double,
+                                      windowSeconds: Double = 8.0) -> MusicalKey {
+        let windowNotes = notes.filter { abs($0.startSeconds - time) <= windowSeconds }
+        // Une fenêtre vide (un extrait isolé, très court) n'a pas assez de matière pour une
+        // corrélation fiable — mieux vaut alors la statistique globale que rien du tout.
+        guard !windowNotes.isEmpty else { return detectKey(from: notes) }
+        return detectKey(from: windowNotes)
+    }
+
     /// Réaligne un profil défini pour une tonique en do sur une autre tonique : la valeur pour
     /// la classe de hauteur `p` sous la tonique `tonic` est celle du profil de référence pour
     /// le degré `p - tonic`.

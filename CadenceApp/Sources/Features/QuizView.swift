@@ -99,7 +99,8 @@ struct QuizView: View {
                 // Certains exercices (l'armure, par exemple) ne portent aucune note à afficher —
                 // la question se suffit à elle-même. Les autres montrent LA PORTÉE, pas l'oreille :
                 // voir `StaffView`, lire est une compétence à part, distincte de l'audition.
-                if !exercise.notes.isEmpty, let key = store.displayKey {
+                if !exercise.notes.isEmpty {
+                    let key = exercise.displayKey
                     // HAUTEUR généreuse — 120 était trop juste : une note à deux lignes
                     // supplémentaires ou plus sous la portée pouvait déborder de la carte visible,
                     // invisible sans qu'on sache pourquoi. 170 donne de la marge des DEUX côtés
@@ -121,7 +122,8 @@ struct QuizView: View {
 
             // Seul "quel est le nom de cette note" propose les DEUX façons de répondre — un
             // intervalle, un accord ou un degré n'ont pas d'équivalent "position sur un clavier".
-            if exercise.kind == .noteSpelling, let key = store.displayKey {
+            if exercise.kind == .noteSpelling {
+                let key = exercise.displayKey
                 modeToggle
                     .padding(.bottom, 4)
                 if answerMode == .keyboard {

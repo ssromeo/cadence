@@ -53,9 +53,20 @@ public struct GeneratedExercise: Identifiable, Sendable {
     /// ce repère, impossible de confirmer qu'un intervalle généré existe bien à tel endroit du
     /// fichier plutôt que d'y faire simplement confiance sur parole.
     public let sourceMeasure: Int?
+    /// La tonalité à utiliser pour AFFICHER cet exercice précis — l'armure à dessiner, la
+    /// convention dièses/bémols de chaque note. SANS PARAMÈTRE PAR DÉFAUT, volontairement : un
+    /// morceau qui module (passe d'une tonalité à une autre en cours de route, comme un vrai
+    /// changement de ton dans une chanson pop) n'a PAS UNE SEULE tonalité pour tout le fichier —
+    /// détecter une tonalité globale unique et l'appliquer à chaque exercice, quelle que soit sa
+    /// position réelle dans le morceau, a déjà produit une armure absente et des dièses qui
+    /// semblaient "en trop" sur des exercices tirés du DÉBUT d'un morceau dont la fin, plus
+    /// longue, tirait la moyenne globale vers une autre tonalité. Chaque exercice porte donc SA
+    /// PROPRE tonalité, détectée localement autour de l'instant où il se trouve dans le morceau.
+    public let displayKey: MusicalKey
 
     public init(kind: ExerciseKind, prompt: String, notes: [Int] = [], stacked: Bool = false,
-                choices: [String], correctIndex: Int, explanation: String = "", sourceMeasure: Int? = nil) {
+                choices: [String], correctIndex: Int, explanation: String = "", sourceMeasure: Int? = nil,
+                displayKey: MusicalKey) {
         self.id = UUID()
         self.kind = kind
         self.prompt = prompt
@@ -65,6 +76,7 @@ public struct GeneratedExercise: Identifiable, Sendable {
         self.correctIndex = correctIndex
         self.explanation = explanation
         self.sourceMeasure = sourceMeasure
+        self.displayKey = displayKey
     }
 
     public func isCorrect(_ choiceIndex: Int) -> Bool { choiceIndex == correctIndex }

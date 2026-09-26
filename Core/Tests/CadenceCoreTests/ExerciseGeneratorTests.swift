@@ -7,6 +7,42 @@ final class ExerciseGeneratorTests: XCTestCase {
         MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: duration, track: 0, channel: 0)
     }
 
+    // MARK: - Tonalité locale, pas globale (un morceau qui module)
+
+    /// Régression exacte du bogue signalé sur un vrai fichier ("With Key Change") : un morceau
+    /// dont la première moitié est nettement côté dièses et la seconde nettement côté bémols ne
+    /// doit PAS donner à un exercice tiré du DÉBUT la tonalité détectée sur l'ENSEMBLE du fichier
+    /// — cette moyenne globale peut retomber sur une tonalité qui n'a ni les dièses ni les
+    /// bémols réellement en vigueur à cet instant précis.
+    func testExerciseFromTheFirstHalfOfAModulatingPieceUsesItsOwnLocalKey() {
+        func noteAt(_ pitch: Int, start: Double, measure: Int) -> MIDINoteEvent {
+            MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.8,
+                         track: 0, channel: 0, measure: measure)
+        }
+
+        // La majeur (3 dièses) joué longuement au début, mesure 1...
+        let firstHalfPitches = [69, 71, 73, 74, 76, 78, 80] // la, si, do#, ré, mi, fa#, sol#
+        let firstHalf = firstHalfPitches.enumerated().map { i, p in noteAt(p, start: Double(i) * 0.9, measure: 1) }
+        // ...fa majeur (1 bémol) joué tout aussi longuement, bien plus tard, mesure 2 : de quoi
+        // tirer une détection GLOBALE loin de "la majeur, 3 dièses" si elle moyennait tout le
+        // fichier au lieu de regarder localement autour de chaque exercice.
+        let secondHalfPitches = [65, 67, 69, 70, 72, 74, 76] // fa, sol, la, si♭, do, ré, mi
+        let secondHalf = secondHalfPitches.enumerated().map { i, p in noteAt(p, start: 20 + Double(i) * 0.9, measure: 2) }
+
+        var rng = SeededGenerator(seed: 60)
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: firstHalf + secondHalf, rng: &rng)
+
+        let fromTheStart = exercises.filter { $0.kind == .interval && $0.sourceMeasure == 1 }
+        XCTAssertFalse(fromTheStart.isEmpty)
+        XCTAssertTrue(fromTheStart.allSatisfy { $0.displayKey.accidentalCount == 3 && !$0.displayKey.prefersFlats },
+                      "un exercice tiré du début (la majeur) ne devrait jamais hériter d'une tonalité détectée sur tout le fichier")
+
+        let fromTheEnd = exercises.filter { $0.kind == .interval && $0.sourceMeasure == 2 }
+        XCTAssertFalse(fromTheEnd.isEmpty)
+        XCTAssertTrue(fromTheEnd.allSatisfy { $0.displayKey.accidentalCount == 1 && $0.displayKey.prefersFlats },
+                      "un exercice tiré de la fin (fa majeur) devrait porter SA propre tonalité, pas celle du début")
+    }
+
     // MARK: - Depuis un morceau
 
     /// Régression : une mélodie (piste 0) et une basse (piste 1) qui jouent EN MÊME TEMPS ne

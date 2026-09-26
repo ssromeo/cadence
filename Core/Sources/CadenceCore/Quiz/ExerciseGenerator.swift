@@ -41,6 +41,10 @@ public enum ExerciseGenerator {
         }
         return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
+            // LOCALE, pas globale — voir `GeneratedExercise.displayKey` : un morceau qui module
+            // n'a pas une seule tonalité pour tout le fichier, donc pas davantage une seule
+            // convention d'écriture pour chaque exercice qui en est tiré.
+            let localKey = KeyDetector.detectLocalKey(from: notes, around: interval.from.startSeconds)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
                 notes: simpleIntervalDisplayPitches(from: interval.from.pitchClass, quality: interval.quality,
@@ -49,7 +53,8 @@ public enum ExerciseGenerator {
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: interval.quality)!,
                 explanation: intervalExplanation(interval.quality),
-                sourceMeasure: canonicalMeasure[interval.from.measure] ?? interval.from.measure)
+                sourceMeasure: canonicalMeasure[interval.from.measure] ?? interval.from.measure,
+                displayKey: localKey)
         }
     }
 
@@ -148,13 +153,15 @@ public enum ExerciseGenerator {
             choices.shuffle(using: &rng)
 
             let rawMeasure = cluster.notes.first?.measure
+            let localKey = KeyDetector.detectLocalKey(from: notes, around: cluster.startSeconds)
             return GeneratedExercise(
                 kind: .chordQuality, prompt: "Quelle est la qualité de cet accord ?",
                 notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!,
                 explanation: chordExplanation(chord.quality),
-                sourceMeasure: rawMeasure.map { canonicalMeasure[$0] ?? $0 })
+                sourceMeasure: rawMeasure.map { canonicalMeasure[$0] ?? $0 },
+                displayKey: localKey)
         }
     }
 
@@ -212,7 +219,7 @@ public enum ExerciseGenerator {
                 notes: [pitch], stacked: false,
                 choices: indices.map { romanNumerals[$0] },
                 correctIndex: indices.firstIndex(of: degree)!,
-                explanation: explanation)
+                explanation: explanation, displayKey: key)
         }
     }
 
@@ -238,7 +245,7 @@ public enum ExerciseGenerator {
                 kind: .noteSpelling, prompt: "Quel est le nom de cette note ?",
                 notes: [pitch], stacked: false,
                 choices: choices, correctIndex: choices.firstIndex(of: correctName)!,
-                explanation: explanation)
+                explanation: explanation, displayKey: key)
         }
     }
 
@@ -313,7 +320,7 @@ public enum ExerciseGenerator {
                 notes: [tonicPitch, to], stacked: false,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: quality)!,
-                explanation: intervalExplanation(quality))
+                explanation: intervalExplanation(quality), displayKey: key)
         }
     }
 
@@ -349,7 +356,7 @@ public enum ExerciseGenerator {
                 notes: triad, stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!,
-                explanation: chordExplanation(chord.quality))
+                explanation: chordExplanation(chord.quality), displayKey: key)
         }
     }
 
@@ -377,6 +384,6 @@ public enum ExerciseGenerator {
             kind: .keySignature,
             prompt: "Combien d'altérations (\(word)s) dans \(key.name()) ?",
             choices: choices, correctIndex: choices.firstIndex(of: String(correct))!,
-            explanation: explanation)
+            explanation: explanation, displayKey: key)
     }
 }
