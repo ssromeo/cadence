@@ -77,6 +77,8 @@ struct StaffView: View {
                 .foregroundStyle(C.ink)
                 .position(x: staffLeft + lineSpacing * 1.4, y: midY + lineSpacing * 0.4)
 
+            keySignature(staffLeft: staffLeft, topLineY: topLineY)
+
             ForEach(Array(noteLayout(staffLeft: staffLeft, staffWidth: staffWidth).enumerated()),
                    id: \.offset) { _, placement in
                 note(pitch: placement.pitch, x: placement.x, topLineY: topLineY)
@@ -112,6 +114,67 @@ struct StaffView: View {
             return pitches.enumerated().map { i, pitch in
                 let t = pitches.count > 1 ? CGFloat(i) / CGFloat(pitches.count - 1) : 0
                 return NotePlacement(pitch: pitch, x: start + t * span)
+            }
+        }
+    }
+
+    // MARK: - Armure
+
+    /// L'ordre et l'octave d'engravure standard des dièses et des bémols en clé de sol — fa, do,
+    /// sol, ré, la, mi, si pour les dièses ; si, mi, la, ré, sol, do, fa pour les bémols. Cet
+    /// ordre n'est pas arbitraire : chaque altération s'ajoute une quinte plus loin que la
+    /// précédente sur le cercle des quintes, dans le sens des dièses ou des bémols.
+    private static let sharpKeySignatureOrder: [(letterStep: Int, octave: Int)] =
+        [(3, 5), (0, 5), (4, 5), (1, 5), (5, 4), (2, 5), (6, 4)]
+    private static let flatKeySignatureOrder: [(letterStep: Int, octave: Int)] =
+        [(6, 4), (2, 5), (5, 4), (1, 5), (4, 4), (0, 5), (3, 5)]
+
+    /// Vrai si CETTE lettre (fa, do, sol… peu importe l'octave) est déjà altérée par l'armure de
+    /// la tonalité — c'est ce qui distingue une note qui a besoin d'un symbole propre d'une note
+    /// que l'armure épelle déjà pour nous.
+    private func keySignatureAccidental(forLetter letterStep: Int) -> Accidental? {
+        guard key.accidentalCount > 0 else { return nil }
+        let order = key.prefersFlats ? Self.flatKeySignatureOrder : Self.sharpKeySignatureOrder
+        let alteredLetters = order.prefix(key.accidentalCount).map(\.letterStep)
+        guard alteredLetters.contains(letterStep) else { return nil }
+        return key.prefersFlats ? .flat : .sharp
+    }
+
+    /// Le symbole à dessiner devant CETTE note, en tenant compte de ce que l'armure annonce déjà
+    /// pour sa lettre — `nil` si l'armure épelle déjà exactement cette altération, un bécarre "♮"
+    /// si l'armure altère la lettre mais que CETTE note y échappe, sinon le symbole propre à la
+    /// note (dièse ou bémol).
+    private func accidentalSymbol(for spelling: NoteSpelling) -> String? {
+        // Deux cas bien distincts, PAS une simple comparaison à l'altération implicite : quand la
+        // lettre n'est concernée par aucune armure (`impliedByKey == nil`), une note naturelle ne
+        // porte jamais de symbole — un bécarre "♮" n'a de sens QUE pour annuler une armure qui
+        // existe. Comparer directement `spelling.accidental` à `impliedByKey` (un `Accidental?`)
+        // traitait `.natural` comme différent de `nil`, et affichait donc un bécarre sur CHAQUE
+        // note naturelle dès qu'aucune armure n'était dessinée — précisément le bogue observé.
+        if let implied = keySignatureAccidental(forLetter: spelling.letterStep) {
+            return spelling.accidental == implied ? nil : "♮"
+        } else {
+            return spelling.accidental == .natural ? nil : spelling.accidental.symbol
+        }
+    }
+
+    /// Les symboles d'armure eux-mêmes, juste après la clé — sans eux, une tonalité à plusieurs
+    /// dièses ou bémols aurait fallu répéter le même symbole devant CHAQUE note concernée, alors
+    /// qu'une portée gravée ne le pose qu'une fois, au début.
+    @ViewBuilder
+    private func keySignature(staffLeft: CGFloat, topLineY: CGFloat) -> some View {
+        if key.accidentalCount > 0 {
+            let order = key.prefersFlats ? Self.flatKeySignatureOrder : Self.sharpKeySignatureOrder
+            let symbol = key.prefersFlats ? "♭" : "♯"
+            ForEach(0..<key.accidentalCount, id: \.self) { i in
+                let entry = order[i]
+                let spelling = NoteSpelling(letterStep: entry.letterStep, octave: entry.octave, accidental: .natural)
+                let position = staffPosition(for: spelling)
+                let x = staffLeft + lineSpacing * 2.5 + CGFloat(i) * lineSpacing * 0.68
+                Text(symbol)
+                    .font(.system(size: lineSpacing * 1.7, weight: .medium))
+                    .foregroundStyle(C.ink)
+                    .position(x: x, y: topLineY + CGFloat(position) * (lineSpacing / 2))
             }
         }
     }
@@ -168,8 +231,14 @@ struct StaffView: View {
                     .position(x: x, y: topLineY + CGFloat(p) * (lineSpacing / 2))
             }
 
-            if spelling.accidental != .natural {
-                Text(spelling.accidental.symbol)
+            // Le symbole ne se pose que si l'ALTÉRATION DE CETTE NOTE diffère de ce que l'armure
+            // annonce déjà pour sa lettre — sans armure dessinée du tout (l'ancien comportement),
+            // une gamme à plusieurs dièses affichait un dièse devant CHAQUE note concernée, alors
+            // qu'une portée gravée ne le fait qu'une fois, au début : exactement le défaut
+            // signalé sur un vrai fichier en la majeur, où do-dièse à l'écran semblait "inventé"
+            // alors qu'il est simplement celui déjà annoncé par l'armure.
+            if let symbol = accidentalSymbol(for: spelling) {
+                Text(symbol)
                     .font(.system(size: lineSpacing * 1.7, weight: .medium))
                     .foregroundStyle(C.ink)
                     .position(x: x - lineSpacing * 1.3, y: y)
