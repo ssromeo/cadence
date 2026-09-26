@@ -66,7 +66,14 @@ public enum ExerciseGenerator {
             // Un silence trop long entre deux notes veut dire qu'on a franchi une frontière de
             // phrase, pas qu'on a bougé d'un intervalle : la relation qu'on demanderait de nommer
             // ne serait plus un geste mélodique continu.
-            $0.to.startSeconds - $0.from.startSeconds <= 2.0
+            guard $0.to.startSeconds - $0.from.startSeconds <= 2.0 else { return false }
+            // MÊME MESURE, jamais à cheval sur deux — un exercice étiqueté "Mesure 13" dont la
+            // seconde note appartient déjà à la mesure 14 n'est pas vérifiable contre UNE mesure
+            // de la partition, exactement le défaut signalé sur un vrai fichier : un grand saut
+            // (une septième) reliait la dernière note d'une mesure à la première de la suivante,
+            // techniquement une paire réelle et consécutive dans le morceau, mais impossible à
+            // confirmer d'un coup d'œil sur la page imprimée qu'on a sous les yeux.
+            return $0.from.measure == $0.to.measure
         }
         return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)

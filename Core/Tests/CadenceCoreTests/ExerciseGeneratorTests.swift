@@ -105,6 +105,32 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertFalse(exercises.contains { $0.kind == .interval })
     }
 
+    /// Régression : un exercice étiqueté "Mesure 13" dont la seconde note appartient DÉJÀ à la
+    /// mesure 14 n'est pas vérifiable contre une seule mesure de la partition — signalé sur un
+    /// vrai fichier où un grand saut (une septième) reliait ainsi la dernière note d'une mesure à
+    /// la première de la suivante. Techniquement une paire réelle et consécutive du morceau, mais
+    /// impossible à confirmer d'un coup d'œil sur la page qu'on a sous les yeux : aucun intervalle
+    /// ne doit donc jamais franchir une frontière de mesure, même quand le silence entre les deux
+    /// notes est court.
+    func testIntervalNeverCrossesAMeasureBoundary() {
+        func noteAt(_ pitch: Int, start: Double, measure: Int) -> MIDINoteEvent {
+            MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.13,
+                         track: 0, channel: 0, measure: measure)
+        }
+        // La dernière note de la mesure 13 et la première de la mesure 14 s'enchaînent sans le
+        // moindre silence (0,13 s d'écart, comme un vrai passage rapide) — le seul filtre qui les
+        // sépare doit être la frontière de mesure elle-même, pas un silence à détecter.
+        let notes = [
+            noteAt(65, start: 0.0, measure: 13),   // fa4, dernière note de la mesure 13
+            noteAt(76, start: 0.13, measure: 14),  // mi5, première note de la mesure 14 : une 7e majeure plus haut
+        ]
+        var rng = SeededGenerator(seed: 62)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        XCTAssertFalse(exercises.contains { $0.kind == .interval },
+                       "un intervalle ne doit jamais relier deux notes de mesures différentes")
+    }
+
     func testGeneratesIntervalAndChordExercisesFromMusic() {
         let notes =
             [note(60, at: 0), note(64, at: 0), note(67, at: 0)] +   // accord de do majeur
