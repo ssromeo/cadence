@@ -43,6 +43,34 @@ final class ExerciseGeneratorTests: XCTestCase {
                       "un exercice tiré de la fin (fa majeur) devrait porter SA propre tonalité, pas celle du début")
     }
 
+    /// Régression exacte du second bogue trouvé sur le même vrai fichier, une mesure plus loin :
+    /// deux exercices tirés de la MÊME mesure imprimée ne doivent jamais afficher deux tonalités
+    /// différentes — même si leurs notes sont séparées de quelques dixièmes de seconde à peine.
+    /// Avant ce correctif, la fenêtre de détection locale était centrée sur l'instant de CHAQUE
+    /// note individuellement ; un déplacement minime de cette fenêtre entre deux notes voisines
+    /// suffisait à faire pencher la corrélation statistique d'une tonalité vers une tonalité
+    /// voisine, produisant un scintillement à l'intérieur d'une seule mesure.
+    func testAllExercisesFromTheSameMeasureShareTheExactSameKey() {
+        func noteAt(_ pitch: Int, start: Double, measure: Int) -> MIDINoteEvent {
+            MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.15,
+                         track: 0, channel: 0, measure: measure)
+        }
+
+        // Une seule mesure, rapide (les notes ne sont séparées que de 0,15 s, comme une croche
+        // à tempo réel) — exactement les conditions où l'ancienne fenêtre par note dérivait.
+        let pitches = [70, 65, 60, 69, 65, 60, 67, 64, 60, 69, 65, 60] // ré, fa, do, la, fa, do, sol, mi, do…
+        let notes = pitches.enumerated().map { i, p in noteAt(p, start: Double(i) * 0.15, measure: 18) }
+
+        var rng = SeededGenerator(seed: 61)
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        let fromMeasure18 = exercises.filter { $0.kind == .interval && $0.sourceMeasure == 18 }
+
+        XCTAssertGreaterThan(fromMeasure18.count, 1, "il faut au moins deux exercices pour vérifier qu'ils s'accordent")
+        let firstKey = fromMeasure18[0].displayKey
+        XCTAssertTrue(fromMeasure18.allSatisfy { $0.displayKey == firstKey },
+                      "tous les exercices d'UNE MÊME mesure doivent partager exactement la même tonalité")
+    }
+
     // MARK: - Depuis un morceau
 
     /// Régression : une mélodie (piste 0) et une basse (piste 1) qui jouent EN MÊME TEMPS ne

@@ -20,13 +20,42 @@ public enum ExerciseGenerator {
         // un fichier exporté avec une reprise déjà "déroulée" numérote sinon deux fois la même
         // mesure imprimée, la seconde fois sous un numéro qui n'existe nulle part sur la partition.
         let canonicalMeasure = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
-        var exercises = intervalExercises(from: notes, canonicalMeasure: canonicalMeasure, rng: &rng)
-        exercises += chordExercises(from: notes, canonicalMeasure: canonicalMeasure, rng: &rng)
+        // UNE tonalité par mesure IMPRIMÉE, pas une par note — voir `localKeysByMeasure` : deux
+        // notes à peine séparées dans le temps ne doivent jamais recevoir des tonalités
+        // différentes sous prétexte que leurs fenêtres de détection, centrées chacune sur SA
+        // propre note, glissaient légèrement l'une par rapport à l'autre.
+        let localKeys = localKeysByMeasure(notes: notes, canonicalMeasure: canonicalMeasure)
+        var exercises = intervalExercises(from: notes, canonicalMeasure: canonicalMeasure, localKeys: localKeys, rng: &rng)
+        exercises += chordExercises(from: notes, canonicalMeasure: canonicalMeasure, localKeys: localKeys, rng: &rng)
         exercises.shuffle(using: &rng)
         return exercises
     }
 
+    /// Calcule la tonalité locale UNE FOIS par mesure imprimée (après repli des répétitions —
+    /// voir `HarmonicAnalyzer.canonicalMeasureMap`), ancrée sur le début de sa PREMIÈRE
+    /// occurrence dans le fichier.
+    ///
+    /// **Pourquoi pas une détection centrée sur l'instant de chaque note.** Deux notes séparées
+    /// de quelques centaines de millisecondes à peine, dans la MÊME mesure, se voyaient parfois
+    /// attribuer des tonalités différentes : leurs fenêtres de quelques secondes, centrées
+    /// chacune sur sa propre note, ne couvraient pas exactement le même voisinage, et un
+    /// déplacement de fenêtre suffisait à faire pencher la corrélation statistique d'un côté ou
+    /// de l'autre — un scintillement à l'intérieur d'une seule mesure, pas une simple imprécision
+    /// ponctuelle. Ancrer une fenêtre unique par mesure élimine cette instabilité : toutes les
+    /// notes d'une même mesure partagent alors exactement la même tonalité affichée.
+    private static func localKeysByMeasure(notes: [MIDINoteEvent],
+                                           canonicalMeasure: [Int: Int]) -> [Int: MusicalKey] {
+        let byCanonical = Dictionary(grouping: notes) { canonicalMeasure[$0.measure] ?? $0.measure }
+        var result: [Int: MusicalKey] = [:]
+        for (canon, groupNotes) in byCanonical {
+            guard let anchor = groupNotes.map(\.startSeconds).min() else { continue }
+            result[canon] = KeyDetector.detectLocalKey(from: notes, around: anchor)
+        }
+        return result
+    }
+
     private static func intervalExercises(from notes: [MIDINoteEvent], canonicalMeasure: [Int: Int],
+                                          localKeys: [Int: MusicalKey],
                                           rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
         // UNE SEULE voix, pas le fichier entier mélangé — voir `HarmonicAnalyzer.melodicLine`.
         // Sans cet isolement, un morceau à deux mains produisait des "intervalles" entre la
@@ -41,10 +70,13 @@ public enum ExerciseGenerator {
         }
         return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
+            let measure = canonicalMeasure[interval.from.measure] ?? interval.from.measure
             // LOCALE, pas globale — voir `GeneratedExercise.displayKey` : un morceau qui module
             // n'a pas une seule tonalité pour tout le fichier, donc pas davantage une seule
-            // convention d'écriture pour chaque exercice qui en est tiré.
-            let localKey = KeyDetector.detectLocalKey(from: notes, around: interval.from.startSeconds)
+            // convention d'écriture pour chaque exercice qui en est tiré. Prise dans `localKeys`
+            // (une par mesure, jamais recalculée par note) pour que deux exercices de la MÊME
+            // mesure ne puissent jamais afficher deux tonalités différentes.
+            let localKey = localKeys[measure] ?? KeyDetector.detectKey(from: notes)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
                 notes: simpleIntervalDisplayPitches(from: interval.from.pitchClass, quality: interval.quality,
@@ -53,7 +85,7 @@ public enum ExerciseGenerator {
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: interval.quality)!,
                 explanation: intervalExplanation(interval.quality),
-                sourceMeasure: canonicalMeasure[interval.from.measure] ?? interval.from.measure,
+                sourceMeasure: measure,
                 displayKey: localKey)
         }
     }
@@ -142,6 +174,7 @@ public enum ExerciseGenerator {
     }
 
     private static func chordExercises(from notes: [MIDINoteEvent], canonicalMeasure: [Int: Int],
+                                       localKeys: [Int: MusicalKey],
                                        rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
         HarmonicAnalyzer.clusterChords(from: notes).compactMap { cluster -> GeneratedExercise? in
             guard let chord = ChordIdentifier.identify(pitchClasses: cluster.pitchClasses,
@@ -153,14 +186,15 @@ public enum ExerciseGenerator {
             choices.shuffle(using: &rng)
 
             let rawMeasure = cluster.notes.first?.measure
-            let localKey = KeyDetector.detectLocalKey(from: notes, around: cluster.startSeconds)
+            let measure = rawMeasure.map { canonicalMeasure[$0] ?? $0 }
+            let localKey = measure.flatMap { localKeys[$0] } ?? KeyDetector.detectKey(from: notes)
             return GeneratedExercise(
                 kind: .chordQuality, prompt: "Quelle est la qualité de cet accord ?",
                 notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!,
                 explanation: chordExplanation(chord.quality),
-                sourceMeasure: rawMeasure.map { canonicalMeasure[$0] ?? $0 },
+                sourceMeasure: measure,
                 displayKey: localKey)
         }
     }
