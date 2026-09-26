@@ -43,9 +43,13 @@ public struct GeneratedExercise: Identifiable, Sendable {
     public let stacked: Bool
     public let choices: [String]
     public let correctIndex: Int
+    /// Pourquoi c'est la bonne réponse — pas un simple rappel de la réponse elle-même. Affichée
+    /// quand on se trompe : "c'était une tierce majeure" ne dit rien sur COMMENT le voir la
+    /// prochaine fois, "il y a 4 demi-tons entre ces deux notes" si.
+    public let explanation: String
 
     public init(kind: ExerciseKind, prompt: String, notes: [Int] = [], stacked: Bool = false,
-                choices: [String], correctIndex: Int) {
+                choices: [String], correctIndex: Int, explanation: String = "") {
         self.id = UUID()
         self.kind = kind
         self.prompt = prompt
@@ -53,6 +57,7 @@ public struct GeneratedExercise: Identifiable, Sendable {
         self.stacked = stacked
         self.choices = choices
         self.correctIndex = correctIndex
+        self.explanation = explanation
     }
 
     public func isCorrect(_ choiceIndex: Int) -> Bool { choiceIndex == correctIndex }

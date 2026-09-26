@@ -1,5 +1,6 @@
 import SwiftUI
 import CadenceCore
+import UIKit
 
 /// L'écran d'exercice — UNIQUE, quel que soit le type d'exercice tiré au sort. Un intervalle,
 /// un accord, un degré de gamme, le nom d'une note ou le nombre d'altérations d'une armure se
@@ -59,11 +60,7 @@ struct QuizView: View {
                 }
 
                 if let selected {
-                    let correct = exercise.isCorrect(selected)
-                    Text(correct ? "Bonne réponse — \(exercise.choices[exercise.correctIndex])"
-                                  : "C'était \(exercise.choices[exercise.correctIndex])")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(correct ? C.good : C.bad)
+                    feedback(for: exercise, selected: selected)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -82,6 +79,43 @@ struct QuizView: View {
         }
         .padding(.horizontal, 24)
         .onChange(of: store.currentExerciseIndex) { _, _ in selected = nil }
+    }
+
+    /// Réponse correcte ou pas, l'écran ne dit jamais SEULEMENT "c'était X" — c'est un rappel de
+    /// la réponse, pas une aide à progresser. Juste, ça se fête (un tampon qui rebondit, à la
+    /// façon d'un parcours de langue) ; faux, ça s'explique (le POURQUOI, tiré de `explanation`,
+    /// pas juste le nom qu'on a raté).
+    @ViewBuilder
+    private func feedback(for exercise: GeneratedExercise, selected: Int) -> some View {
+        if exercise.isCorrect(selected) {
+            CelebrationStamp(seed: exercise.id.hashValue)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("C'était \(exercise.choices[exercise.correctIndex])")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(C.bad)
+
+                if !exercise.explanation.isEmpty {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(C.apricot)
+                        Text(exercise.explanation)
+                            .font(.system(size: 14))
+                            .foregroundStyle(C.ink2)
+                    }
+                }
+            }
+            // LARGEUR EXPLICITE, jamais `.frame(maxWidth: .infinity)` — même règle que pour les
+            // boutons de réponse (voir `choiceGrid`) et pour la même raison : un `Text` posé dans
+            // un conteneur en largeur flexible, ici combiné à `.transition()` et `.background()`,
+            // s'est encore une fois affiché comme une simple forme colorée VIDE, sans un seul
+            // glyphe peint — reproduit avec CETTE carte précisément, `contentWidth` fixe le
+            // supprime entièrement.
+            .padding(14)
+            .frame(width: contentWidth, alignment: .leading)
+            .background(C.badSoft, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 
     /// Largeur utile de l'écran, une fois retirée la marge horizontale de 24 pt appliquée deux
@@ -148,6 +182,10 @@ struct QuizView: View {
             guard selected == nil else { return }
             withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { selected = index }
             store.answer(index)
+            // Un petit retour physique en plus du visuel — Duolingo s'appuie dessus aussi : une
+            // vibration différente pour "juste" et "faux" se ressent avant même d'avoir lu la
+            // couleur du bouton.
+            UINotificationFeedbackGenerator().notificationOccurred(exercise.isCorrect(index) ? .success : .error)
         } label: {
             Text(text)
                 .font(.system(size: 15, weight: .medium))
@@ -176,6 +214,35 @@ struct QuizView: View {
                 .background(C.ink, in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Le tampon qui rebondit à la Duolingo quand on répond juste — un `spring` à faible
+/// amortissement, pour qu'il DÉPASSE sa taille finale avant de s'y stabiliser, exactement l'effet
+/// "PERFECT" qui s'écrase sur l'écran plutôt qu'un simple fondu poli.
+private struct CelebrationStamp: View {
+    let seed: Int
+    @State private var appeared = false
+
+    private static let words = ["Parfait !", "Exact !", "Bravo !", "Impeccable !"]
+    private var word: String { Self.words[abs(seed) % Self.words.count] }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.seal.fill")
+            Text(word)
+        }
+        .font(.system(size: 20, weight: .heavy, design: .rounded))
+        .foregroundStyle(C.good)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(C.goodSoft, in: Capsule())
+        .overlay(Capsule().strokeBorder(C.good.opacity(0.4), lineWidth: 1.5))
+        .scaleEffect(appeared ? 1 : 0.4)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.55)) { appeared = true }
+        }
     }
 }
 

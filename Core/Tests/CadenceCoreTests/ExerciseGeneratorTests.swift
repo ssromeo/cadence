@@ -138,6 +138,39 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertEqual(signature2.choices[signature2.correctIndex], "2")
     }
 
+    // MARK: - Explications
+
+    func testEveryGeneratedExerciseCarriesAnExplanation() {
+        var rng = SeededGenerator(seed: 30)
+        let notes =
+            [note(60, at: 0), note(64, at: 0), note(67, at: 0)] +
+            [note(60, at: 1), note(64, at: 1.5), note(67, at: 2)]
+        let fromMusic = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        XCTAssertFalse(fromMusic.isEmpty)
+        for exercise in fromMusic {
+            XCTAssertFalse(exercise.explanation.isEmpty, "\(exercise.kind) devrait porter une explication")
+        }
+
+        let key = MusicalKey(tonicPitchClass: 4, isMajor: true)
+        for focus in ExerciseGenerator.ScaleFocus.allCases {
+            let exercises = ExerciseGenerator.scaleExercises(key: key, focus: focus, rng: &rng)
+            for exercise in exercises {
+                XCTAssertFalse(exercise.explanation.isEmpty,
+                               "\(focus) / \(exercise.kind) devrait porter une explication")
+            }
+        }
+    }
+
+    func testIntervalExplanationNamesTheSemitoneCount() {
+        let notes = [note(60, at: 0), note(64, at: 1)] // do → mi : tierce majeure, 4 demi-tons
+        var rng = SeededGenerator(seed: 31)
+
+        let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+            .first { $0.kind == .interval }!
+
+        XCTAssertTrue(exercise.explanation.contains("4"))
+    }
+
     func testCMajorHasNoAccidentals() {
         let cMajor = MusicalKey(tonicPitchClass: 0, isMajor: true)
         XCTAssertEqual(cMajor.accidentalCount, 0)

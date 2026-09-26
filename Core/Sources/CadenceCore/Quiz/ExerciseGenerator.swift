@@ -28,9 +28,48 @@ public enum ExerciseGenerator {
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
-                notes: centeredForDisplay([interval.from.pitch, interval.to.pitch]), stacked: false,
+                notes: simpleIntervalDisplayPitches(from: interval.from.pitchClass, quality: interval.quality,
+                                                    ascending: interval.isAscending),
+                stacked: false,
                 choices: choices.map(\.displayName),
-                correctIndex: choices.firstIndex(of: interval.quality)!)
+                correctIndex: choices.firstIndex(of: interval.quality)!,
+                explanation: intervalExplanation(interval.quality))
+        }
+    }
+
+    /// Reconstruit la paire de hauteurs à AFFICHER depuis la seule qualité SIMPLE de l'intervalle
+    /// — jamais depuis l'écart réel entre les deux notes du morceau.
+    ///
+    /// **Pourquoi.** `MelodicInterval.quality` ramène toujours un intervalle composé (une dixième,
+    /// une dix-septième…) à sa forme simple, dans l'octave — c'est CETTE forme simple qu'on
+    /// propose comme réponse ("tierce mineure", jamais "dixième mineure"). Afficher l'écart RÉEL
+    /// entre les deux notes, qui peut dépasser deux octaves dans un morceau enregistré normalement
+    /// (une basse et une mélodie éloignées, par exemple), montrerait une portée bien plus large que
+    /// ce que le nom de la réponse suggère — et déborderait de l'écran par la même occasion.
+    /// Repartir de la seule classe de hauteur de la note de départ, posée dans une octave
+    /// confortable, garantit que l'écart affiché correspond exactement, toujours, à la qualité
+    /// demandée.
+    private static func simpleIntervalDisplayPitches(from pitchClass: Int, quality: IntervalQuality,
+                                                     ascending: Bool) -> [Int] {
+        let fromDisplay = 55 + pitchClass // ré3 à ré4 selon la classe : toujours près de la portée
+        let toDisplay = ascending ? fromDisplay + quality.rawValue : fromDisplay - quality.rawValue
+        return [fromDisplay, toDisplay]
+    }
+
+    /// La méthode plutôt que le nom appris par cœur : COMPTER les demi-tons est ce qui reste
+    /// utilisable sur une portée qu'on n'a jamais vue, contrairement à reconnaître une forme au
+    /// premier coup d'œil.
+    private static func intervalExplanation(_ quality: IntervalQuality) -> String {
+        "Compte les demi-tons entre les deux notes : il y en a \(quality.rawValue), " +
+        "ce qui correspond à \(article(for: quality)) \(quality.displayName.lowercased())."
+    }
+
+    /// "un" seulement devant unisson et triton (masculins) ; tous les autres noms d'intervalle
+    /// français — seconde, tierce, quarte, quinte, sixte, septième, octave — sont féminins.
+    private static func article(for quality: IntervalQuality) -> String {
+        switch quality {
+        case .unison, .tritone: "un"
+        default: "une"
         }
     }
 
@@ -90,7 +129,28 @@ public enum ExerciseGenerator {
                 kind: .chordQuality, prompt: "Quelle est la qualité de cet accord ?",
                 notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
-                correctIndex: choices.firstIndex(of: chord.quality)!)
+                correctIndex: choices.firstIndex(of: chord.quality)!,
+                explanation: chordExplanation(chord.quality))
+        }
+    }
+
+    /// La STRUCTURE de l'accord — quelles tierces s'empilent — plutôt qu'un simple rappel de son
+    /// nom : c'est cette structure qu'on reconnaît sur une portée, le nom vient après.
+    private static func chordExplanation(_ quality: ChordQuality) -> String {
+        switch quality {
+        case .major: "Une tierce majeure (4 demi-tons) puis une tierce mineure (3 demi-tons) au-dessus de la fondamentale : l'accord est majeur."
+        case .minor: "Une tierce mineure (3 demi-tons) puis une tierce majeure (4 demi-tons) au-dessus de la fondamentale : l'accord est mineur."
+        case .diminished: "Deux tierces mineures empilées (3 puis 3 demi-tons) : la quinte se retrouve diminuée."
+        case .augmented: "Deux tierces majeures empilées (4 puis 4 demi-tons) : la quinte se retrouve augmentée."
+        case .sus2: "Une seconde majeure remplace la tierce : ni majeur ni mineur, l'accord reste \"suspendu\"."
+        case .sus4: "Une quarte juste remplace la tierce : ni majeur ni mineur, l'accord reste \"suspendu\"."
+        case .dominantSeventh: "Un accord majeur, plus une septième mineure au-dessus de la fondamentale."
+        case .majorSeventh: "Un accord majeur, plus une septième majeure au-dessus de la fondamentale."
+        case .minorSeventh: "Un accord mineur, plus une septième mineure au-dessus de la fondamentale."
+        case .diminishedSeventh: "Un accord diminué, plus une septième diminuée : chaque étage est une tierce mineure."
+        case .halfDiminishedSeventh: "Un accord diminué, mais avec une septième mineure plutôt que diminuée au sommet."
+        case .minorMajorSeventh: "Un accord mineur, plus une septième MAJEURE au-dessus de la fondamentale."
+        case .augmentedSeventh: "Un accord augmenté, plus une septième mineure au-dessus de la fondamentale."
         }
     }
 
@@ -118,11 +178,17 @@ public enum ExerciseGenerator {
             distractors.shuffle(using: &rng)
             var indices = Array(distractors.prefix(3)) + [degree]
             indices.shuffle(using: &rng)
+            let tonicName = NoteNaming.name(forPitchClass: key.tonicPitchClass, preferFlats: key.prefersFlats)
+            let explanation = degree == 0
+                ? "C'est la tonique elle-même — le point de départ de la gamme, degré \(romanNumerals[0])."
+                : "En partant de la tonique (\(tonicName)) et en montant note par note dans la gamme, " +
+                  "c'est la \(degree + 1)ᵉ note : le degré \(romanNumerals[degree])."
             return GeneratedExercise(
                 kind: .scaleDegree, prompt: "Quel degré de \(key.name()) est cette note ?",
                 notes: [pitch], stacked: false,
                 choices: indices.map { romanNumerals[$0] },
-                correctIndex: indices.firstIndex(of: degree)!)
+                correctIndex: indices.firstIndex(of: degree)!,
+                explanation: explanation)
         }
     }
 
@@ -141,10 +207,14 @@ public enum ExerciseGenerator {
             distractors.shuffle(using: &rng)
             var choices = Array(distractors.prefix(3)) + [correctName]
             choices.shuffle(using: &rng)
+            let word = key.prefersFlats ? "bémols" : "dièses"
+            let explanation = "\(key.name().capitalized) s'écrit avec des \(word) : cette hauteur se nomme donc " +
+                "\(correctName), jamais avec l'autre convention, même si le son au piano serait identique."
             return GeneratedExercise(
                 kind: .noteSpelling, prompt: "Quel est le nom de cette note ?",
                 notes: [pitch], stacked: false,
-                choices: choices, correctIndex: choices.firstIndex(of: correctName)!)
+                choices: choices, correctIndex: choices.firstIndex(of: correctName)!,
+                explanation: explanation)
         }
     }
 
@@ -211,7 +281,8 @@ public enum ExerciseGenerator {
                 kind: .interval, prompt: "Quel est cet intervalle depuis la tonique ?",
                 notes: [tonicPitch, to], stacked: false,
                 choices: choices.map(\.displayName),
-                correctIndex: choices.firstIndex(of: quality)!)
+                correctIndex: choices.firstIndex(of: quality)!,
+                explanation: intervalExplanation(quality))
         }
     }
 
@@ -246,7 +317,8 @@ public enum ExerciseGenerator {
                 prompt: "Quelle est la qualité de l'accord construit sur le \(romanNumerals[degree]) degré ?",
                 notes: triad, stacked: true,
                 choices: choices.map(\.displayName),
-                correctIndex: choices.firstIndex(of: chord.quality)!)
+                correctIndex: choices.firstIndex(of: chord.quality)!,
+                explanation: chordExplanation(chord.quality))
         }
     }
 
@@ -267,9 +339,13 @@ public enum ExerciseGenerator {
         var choices = (Array(chosen) + [correct]).map(String.init)
         choices.shuffle(using: &rng)
         let word = key.prefersFlats ? "bémol" : "dièse"
+        let explanation = correct == 0
+            ? "\(key.name().capitalized) est la seule tonalité majeure sans aucune altération : do majeur."
+            : "Sur le cercle des quintes, \(key.name()) est la \(correct)ᵉ tonalité côté \(word)s en partant de do majeur — elle en compte donc \(correct)."
         return GeneratedExercise(
             kind: .keySignature,
             prompt: "Combien d'altérations (\(word)s) dans \(key.name()) ?",
-            choices: choices, correctIndex: choices.firstIndex(of: String(correct))!)
+            choices: choices, correctIndex: choices.firstIndex(of: String(correct))!,
+            explanation: explanation)
     }
 }
