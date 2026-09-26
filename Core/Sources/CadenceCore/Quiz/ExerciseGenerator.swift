@@ -65,24 +65,28 @@ public enum ExerciseGenerator {
         let coherentIntervals = HarmonicAnalyzer.melodicIntervals(from: melody).filter {
             // Un silence trop long entre deux notes veut dire qu'on a franchi une frontière de
             // phrase, pas qu'on a bougé d'un intervalle : la relation qu'on demanderait de nommer
-            // ne serait plus un geste mélodique continu.
-            guard $0.to.startSeconds - $0.from.startSeconds <= 2.0 else { return false }
-            // MÊME MESURE, jamais à cheval sur deux — un exercice étiqueté "Mesure 13" dont la
-            // seconde note appartient déjà à la mesure 14 n'est pas vérifiable contre UNE mesure
-            // de la partition, exactement le défaut signalé sur un vrai fichier : un grand saut
-            // (une septième) reliait la dernière note d'une mesure à la première de la suivante,
-            // techniquement une paire réelle et consécutive dans le morceau, mais impossible à
-            // confirmer d'un coup d'œil sur la page imprimée qu'on a sous les yeux.
-            return $0.from.measure == $0.to.measure
+            // ne serait plus un geste mélodique continu. La frontière de MESURE, elle, n'est pas
+            // un critère d'exclusion : deux notes réellement consécutives dans le morceau (aucun
+            // silence entre elles) forment un intervalle valide même quand l'une appartient à la
+            // mesure imprimée précédente et l'autre à la suivante — un enchaînement rapide en fin
+            // de mesure en est un exemple courant. Ce qui rendait ça illisible n'était pas
+            // l'intervalle lui-même mais l'affichage : un exercice étiqueté "Mesure 13" tout court
+            // alors que sa seconde note vit dans la mesure 14 semblait "inventer" une note absente
+            // de la page. La correction porte sur l'étiquette (voir plus bas, `sourceMeasureEnd`
+            // et `GeneratedExercise.sourceMeasureLabel`), pas sur l'exclusion de la paire.
+            $0.to.startSeconds - $0.from.startSeconds <= 2.0
         }
         return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
             let measure = canonicalMeasure[interval.from.measure] ?? interval.from.measure
+            let measureEnd = canonicalMeasure[interval.to.measure] ?? interval.to.measure
             // LOCALE, pas globale — voir `GeneratedExercise.displayKey` : un morceau qui module
             // n'a pas une seule tonalité pour tout le fichier, donc pas davantage une seule
             // convention d'écriture pour chaque exercice qui en est tiré. Prise dans `localKeys`
             // (une par mesure, jamais recalculée par note) pour que deux exercices de la MÊME
-            // mesure ne puissent jamais afficher deux tonalités différentes.
+            // mesure ne puissent jamais afficher deux tonalités différentes. Quand l'intervalle
+            // enjambe une frontière, on garde la tonalité de la mesure DE DÉPART : c'est la note
+            // qu'on lit en premier sur la portée qui ancre la lecture de l'intervalle.
             let localKey = localKeys[measure] ?? KeyDetector.detectKey(from: notes)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
@@ -93,6 +97,7 @@ public enum ExerciseGenerator {
                 correctIndex: choices.firstIndex(of: interval.quality)!,
                 explanation: intervalExplanation(interval.quality),
                 sourceMeasure: measure,
+                sourceMeasureEnd: measureEnd == measure ? nil : measureEnd,
                 displayKey: localKey)
         }
     }

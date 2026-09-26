@@ -105,21 +105,19 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertFalse(exercises.contains { $0.kind == .interval })
     }
 
-    /// Régression : un exercice étiqueté "Mesure 13" dont la seconde note appartient DÉJÀ à la
-    /// mesure 14 n'est pas vérifiable contre une seule mesure de la partition — signalé sur un
-    /// vrai fichier où un grand saut (une septième) reliait ainsi la dernière note d'une mesure à
-    /// la première de la suivante. Techniquement une paire réelle et consécutive du morceau, mais
-    /// impossible à confirmer d'un coup d'œil sur la page qu'on a sous les yeux : aucun intervalle
-    /// ne doit donc jamais franchir une frontière de mesure, même quand le silence entre les deux
-    /// notes est court.
-    func testIntervalNeverCrossesAMeasureBoundary() {
+    /// Un intervalle PEUT relier la dernière note d'une mesure imprimée à la première de la
+    /// suivante — c'est une paire réellement consécutive dans le morceau, aucun silence entre les
+    /// deux. Ce qui semblait "inventer une note" n'était pas l'intervalle mais son étiquette :
+    /// affichée comme une simple "Mesure 13" alors que la seconde note vit déjà dans la mesure 14,
+    /// elle ne pouvait être vérifiée sur une seule page de la partition. La correction nomme les
+    /// deux mesures plutôt que d'exclure la paire.
+    func testIntervalCrossingAMeasureBoundaryLabelsBothMeasures() {
         func noteAt(_ pitch: Int, start: Double, measure: Int) -> MIDINoteEvent {
             MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.13,
                          track: 0, channel: 0, measure: measure)
         }
         // La dernière note de la mesure 13 et la première de la mesure 14 s'enchaînent sans le
-        // moindre silence (0,13 s d'écart, comme un vrai passage rapide) — le seul filtre qui les
-        // sépare doit être la frontière de mesure elle-même, pas un silence à détecter.
+        // moindre silence (0,13 s d'écart, comme un vrai passage rapide).
         let notes = [
             noteAt(65, start: 0.0, measure: 13),   // fa4, dernière note de la mesure 13
             noteAt(76, start: 0.13, measure: 14),  // mi5, première note de la mesure 14 : une 7e majeure plus haut
@@ -127,8 +125,26 @@ final class ExerciseGeneratorTests: XCTestCase {
         var rng = SeededGenerator(seed: 62)
 
         let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
-        XCTAssertFalse(exercises.contains { $0.kind == .interval },
-                       "un intervalle ne doit jamais relier deux notes de mesures différentes")
+        guard let interval = exercises.first(where: { $0.kind == .interval }) else {
+            return XCTFail("deux notes consécutives sans silence doivent produire un exercice d'intervalle, même à cheval sur une frontière de mesure")
+        }
+        XCTAssertEqual(interval.sourceMeasure, 13)
+        XCTAssertEqual(interval.sourceMeasureEnd, 14)
+        XCTAssertEqual(interval.sourceMeasureLabel, "Mesure 13 et 14")
+    }
+
+    /// Un intervalle contenu dans une seule mesure imprimée ne doit PAS afficher une seconde
+    /// mesure — `sourceMeasureEnd` doit rester `nil` et l'étiquette ne montrer qu'un seul numéro.
+    func testIntervalWithinOneMeasureLabelsOnlyThatMeasure() {
+        let notes = [note(60, at: 0), note(64, at: 0.4)] // do5-mi5, même mesure implicite (1)
+        var rng = SeededGenerator(seed: 63)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        guard let interval = exercises.first(where: { $0.kind == .interval }) else {
+            return XCTFail("attendu au moins un exercice d'intervalle")
+        }
+        XCTAssertNil(interval.sourceMeasureEnd)
+        XCTAssertEqual(interval.sourceMeasureLabel, "Mesure 1")
     }
 
     func testGeneratesIntervalAndChordExercisesFromMusic() {

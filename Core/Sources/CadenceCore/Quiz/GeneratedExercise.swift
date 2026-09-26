@@ -53,6 +53,13 @@ public struct GeneratedExercise: Identifiable, Sendable {
     /// ce repère, impossible de confirmer qu'un intervalle généré existe bien à tel endroit du
     /// fichier plutôt que d'y faire simplement confiance sur parole.
     public let sourceMeasure: Int?
+    /// La mesure de la SECONDE note, seulement quand un intervalle enjambe une frontière de
+    /// mesure (`nil` sinon, y compris pour tout exercice qui n'est pas un intervalle). Un
+    /// intervalle reste une paire de notes réellement consécutives dans le morceau MÊME quand
+    /// cette paire est à cheval sur deux mesures imprimées — l'interdire aurait supprimé des
+    /// exercices musicalement valides pour un simple problème d'AFFICHAGE. La bonne réponse est
+    /// de nommer les deux mesures plutôt qu'une seule : voir `sourceMeasureLabel`.
+    public let sourceMeasureEnd: Int?
     /// La tonalité à utiliser pour AFFICHER cet exercice précis — l'armure à dessiner, la
     /// convention dièses/bémols de chaque note. SANS PARAMÈTRE PAR DÉFAUT, volontairement : un
     /// morceau qui module (passe d'une tonalité à une autre en cours de route, comme un vrai
@@ -66,7 +73,7 @@ public struct GeneratedExercise: Identifiable, Sendable {
 
     public init(kind: ExerciseKind, prompt: String, notes: [Int] = [], stacked: Bool = false,
                 choices: [String], correctIndex: Int, explanation: String = "", sourceMeasure: Int? = nil,
-                displayKey: MusicalKey) {
+                sourceMeasureEnd: Int? = nil, displayKey: MusicalKey) {
         self.id = UUID()
         self.kind = kind
         self.prompt = prompt
@@ -76,8 +83,19 @@ public struct GeneratedExercise: Identifiable, Sendable {
         self.correctIndex = correctIndex
         self.explanation = explanation
         self.sourceMeasure = sourceMeasure
+        self.sourceMeasureEnd = sourceMeasureEnd
         self.displayKey = displayKey
     }
 
     public func isCorrect(_ choiceIndex: Int) -> Bool { choiceIndex == correctIndex }
+
+    /// Le repère à afficher au-dessus de l'exercice, prêt à l'emploi côté UI : "Mesure 13" pour
+    /// un exercice contenu dans une seule mesure, "Mesure 13 et 14" quand l'intervalle enjambe
+    /// une frontière — jamais un simple numéro qui laisserait croire, à tort, que la seconde note
+    /// se trouve aussi dans la première mesure.
+    public var sourceMeasureLabel: String? {
+        guard let start = sourceMeasure else { return nil }
+        guard let end = sourceMeasureEnd, end != start else { return "Mesure \(start)" }
+        return "Mesure \(start) et \(end)"
+    }
 }

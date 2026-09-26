@@ -86,11 +86,12 @@ struct QuizView: View {
 
                     // Le repère qui manquait pour VÉRIFIER un exercice contre sa partition,
                     // plutôt que de devoir faire confiance à l'algorithme sur parole — un
-                    // exercice généré depuis un morceau importé sait toujours de quelle mesure
-                    // il vient (voir `GeneratedExercise.sourceMeasure`) ; une gamme choisie sans
-                    // morceau n'en a pas, et n'affiche donc rien ici.
-                    if let measure = exercise.sourceMeasure {
-                        Text("Mesure \(measure)")
+                    // exercice généré depuis un morceau importé sait toujours de quelle(s)
+                    // mesure(s) il vient (voir `GeneratedExercise.sourceMeasureLabel` : "Mesure
+                    // 13" seul, ou "Mesure 13 et 14" quand l'intervalle enjambe la frontière) ;
+                    // une gamme choisie sans morceau n'en a pas, et n'affiche donc rien ici.
+                    if let label = exercise.sourceMeasureLabel {
+                        Text(label)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(C.inkFaint)
                     }
