@@ -72,4 +72,40 @@ final class KeyDetectorTests: XCTestCase {
         let key = MusicalKey(tonicPitchClass: 9, isMajor: false)
         XCTAssertEqual(key.scalePitchClasses, [9, 11, 0, 2, 4, 5, 7])
     }
+
+    // MARK: - Construction depuis l'armure déclarée d'un fichier (méta-événement MIDI 0x59)
+
+    /// `sharpsOrFlats: 4, isMajor: true` est exactement ce que porte le vrai fichier utilisateur à
+    /// certains endroits (confirmé contre sa partition imprimée : "Mi majeur, 4 dièses").
+    func testFourSharpsMajorIsEMajor() {
+        let key = MusicalKey(sharpsOrFlats: 4, isMajor: true)
+        XCTAssertEqual(key.tonicPitchClass, 4) // mi
+        XCTAssertEqual(key.accidentalCount, 4)
+        XCTAssertFalse(key.prefersFlats)
+    }
+
+    /// Zéro altération, majeur, est do majeur — pas une tonalité voisine comme fa majeur (qui ne
+    /// diffère que d'une seule note, si contre si♭, assez proche pour tromper une détection
+    /// statistique sur un passage qui n'utilise pas cette note).
+    func testZeroSharpsOrFlatsMajorIsCMajor() {
+        let key = MusicalKey(sharpsOrFlats: 0, isMajor: true)
+        XCTAssertEqual(key.tonicPitchClass, 0) // do
+        XCTAssertEqual(key.accidentalCount, 0)
+    }
+
+    func testNegativeSharpsOrFlatsMeansFlatsOnTheOtherSideOfTheCircle() {
+        let key = MusicalKey(sharpsOrFlats: -2, isMajor: true) // si♭ majeur : 2 bémols
+        XCTAssertEqual(key.tonicPitchClass, 10) // si♭
+        XCTAssertTrue(key.prefersFlats)
+    }
+
+    func testZeroSharpsOrFlatsMinorIsARelativeMinorNotC() {
+        let key = MusicalKey(sharpsOrFlats: 0, isMajor: false)
+        XCTAssertEqual(key.tonicPitchClass, 9) // la, le relatif mineur de do majeur
+    }
+
+    func testThreeSharpsMinorIsFSharpMinor() {
+        let key = MusicalKey(sharpsOrFlats: 3, isMajor: false)
+        XCTAssertEqual(key.tonicPitchClass, 6) // fa#
+    }
 }

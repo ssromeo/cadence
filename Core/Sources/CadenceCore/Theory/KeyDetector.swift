@@ -13,6 +13,27 @@ public struct MusicalKey: Equatable, Sendable {
         self.isMajor = isMajor
     }
 
+    /// Construit une tonalité depuis un compte d'altérations signé — la convention du
+    /// méta-événement MIDI "Key Signature" (positif = dièses, négatif = bémols) et de la plupart
+    /// des logiciels de notation. C'est l'inverse exact de `accidentalCount`/`prefersFlats`.
+    ///
+    /// **Pourquoi ce constructeur existe.** Beaucoup de fichiers MIDI exportés depuis un logiciel
+    /// de notation DÉCLARENT explicitement leur tonalité à chaque changement, plutôt que de la
+    /// laisser deviner depuis les notes jouées. Cette donnée est AUTORITATIVE — c'est ce que le
+    /// compositeur (ou l'export) a réellement écrit sur la partition — alors qu'une détection
+    /// statistique reste une estimation, capable de se tromper sur un passage ambigu (do majeur et
+    /// fa majeur ne diffèrent que par une seule note, si naturel contre si bémol). Voir
+    /// `MIDIFileParser`.
+    public init(sharpsOrFlats: Int, isMajor: Bool) {
+        // Do majeur (0 altération) et la mineur, son relatif (0 altération lui aussi), servent de
+        // référence sur le cercle des quintes ; chaque dièse ou bémol supplémentaire déplace la
+        // tonique d'une quinte (7 demi-tons) le long du cercle — dans un sens pour les dièses,
+        // dans l'autre pour les bémols (un compte négatif).
+        let referenceTonic = isMajor ? 0 : 9 // do (majeur) ou la (mineur)
+        self.tonicPitchClass = ((referenceTonic + sharpsOrFlats * 7) % 12 + 12) % 12
+        self.isMajor = isMajor
+    }
+
     /// Les tonalités à dièses s'écrivent avec des dièses, celles à bémols avec des bémols — la
     /// convention n'est pas arbitraire, elle vient du cercle des quintes. Approximation
     /// suffisante pour l'affichage : les tonalités dont la tonique se trouve du côté "dièse" du

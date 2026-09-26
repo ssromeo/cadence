@@ -48,7 +48,19 @@ public enum ExerciseGenerator {
         let byCanonical = Dictionary(grouping: notes) { canonicalMeasure[$0.measure] ?? $0.measure }
         var result: [Int: MusicalKey] = [:]
         for (canon, groupNotes) in byCanonical {
-            guard let anchor = groupNotes.map(\.startSeconds).min() else { continue }
+            let sortedGroup = groupNotes.sorted { $0.startSeconds < $1.startSeconds }
+            // Le fichier dit LUI-MÊME quelle est l'armure à cet endroit (méta-événement MIDI "Key
+            // Signature") : une donnée AUTORITATIVE, toujours préférée à une simple corrélation
+            // statistique sur le contenu des notes — voir `MIDINoteEvent.declaredKey`. C'est ce
+            // qui manquait pour "mesure 18" : le fichier réel alterne mi majeur (4 dièses) et do
+            // majeur (aucune altération), jamais fa majeur (1 bémol) — mais fa majeur et do majeur
+            // ne diffèrent que par UNE note (si contre si♭), assez proche pour qu'une corrélation
+            // statistique s'y trompe sur un passage qui n'utilise pas beaucoup cette note-là.
+            if let declared = sortedGroup.compactMap(\.declaredKey).first {
+                result[canon] = declared
+                continue
+            }
+            guard let anchor = sortedGroup.map(\.startSeconds).min() else { continue }
             result[canon] = KeyDetector.detectLocalKey(from: notes, around: anchor)
         }
         return result

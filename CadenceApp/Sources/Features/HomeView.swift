@@ -19,18 +19,11 @@ struct HomeView: View {
 
             VStack(spacing: 0) {
                 header
-                Spacer(minLength: 8)
-
-                LivingOrb()
-                    .frame(width: 260, height: 260)
-                    .shadow(color: C.coral.opacity(0.28), radius: 36, y: 18)
-
-                Spacer(minLength: 8)
+                Spacer(minLength: 40)
 
                 statusText
-                    .padding(.top, 8)
 
-                Spacer(minLength: 24)
+                Spacer(minLength: 40)
 
                 actionRow
                     .padding(.bottom, 12)

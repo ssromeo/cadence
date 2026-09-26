@@ -16,9 +16,16 @@ public struct MIDINoteEvent: Equatable, Sendable {
     /// `1` par défaut : les notes construites à la main (tests, gammes) n'ont pas de mesure
     /// réelle à rapporter, seul un fichier importé en calcule une.
     public let measure: Int
+    /// La tonalité que le FICHIER déclare lui-même à cet instant, via le méta-événement MIDI
+    /// "Key Signature" (0x59) — `nil` quand le fichier n'en déclare aucune (beaucoup d'exports de
+    /// clavier n'en portent pas), ou pour une note construite à la main (tests, gammes). Une
+    /// donnée AUTORITATIVE quand elle existe : c'est l'armure telle qu'écrite, pas une estimation
+    /// statistique du contenu des notes — voir `KeyDetector.detectLocalKey`, qui ne sert qu'en son
+    /// absence.
+    public let declaredKey: MusicalKey?
 
     public init(pitch: Int, velocity: Int, startSeconds: Double, durationSeconds: Double,
-                track: Int, channel: Int, measure: Int = 1) {
+                track: Int, channel: Int, measure: Int = 1, declaredKey: MusicalKey? = nil) {
         self.pitch = pitch
         self.velocity = velocity
         self.startSeconds = startSeconds
@@ -26,6 +33,7 @@ public struct MIDINoteEvent: Equatable, Sendable {
         self.track = track
         self.channel = channel
         self.measure = measure
+        self.declaredKey = declaredKey
     }
 
     public var endSeconds: Double { startSeconds + durationSeconds }
@@ -87,6 +95,7 @@ public enum MIDIFileParser {
 
         let tempoMap = buildTempoMap(rawTracks: rawTracks)
         let timeSignatureMap = buildTimeSignatureMap(rawTracks: rawTracks, ticksPerQuarterNote: ticksPerQuarterNote)
+        let keySignatureMap = buildKeySignatureMap(rawTracks: rawTracks)
         var notes: [MIDINoteEvent] = []
 
         for (trackIndex, events) in rawTracks.enumerated() {
@@ -112,10 +121,12 @@ public enum MIDIFileParser {
                     let startSeconds = tempoMap.seconds(atTick: startTick, ticksPerQuarterNote: ticksPerQuarterNote)
                     let endSeconds = tempoMap.seconds(atTick: event.tick, ticksPerQuarterNote: ticksPerQuarterNote)
                     let measure = timeSignatureMap.measureNumber(atTick: startTick)
+                    let declaredKey = keySignatureMap.key(atTick: startTick)
                     notes.append(MIDINoteEvent(pitch: pitch, velocity: velocity,
                                                startSeconds: startSeconds,
                                                durationSeconds: max(0, endSeconds - startSeconds),
-                                               track: trackIndex, channel: channel, measure: measure))
+                                               track: trackIndex, channel: channel, measure: measure,
+                                               declaredKey: declaredKey))
                 default:
                     continue
                 }
@@ -134,6 +145,7 @@ public enum MIDIFileParser {
         case noteOff(channel: Int, pitch: Int, velocity: Int)
         case tempo(microsecondsPerQuarterNote: Int)
         case timeSignature(numerator: Int, denominatorPower: Int)
+        case keySignature(sharpsOrFlats: Int, isMajor: Bool)
         case other
     }
 
@@ -179,6 +191,13 @@ public enum MIDIFileParser {
                     // directement lisible.
                     events.append(RawEvent(tick: tick, kind: .timeSignature(numerator: Int(payload[0]),
                                                                             denominatorPower: Int(payload[1]))))
+                } else if type == 0x59, payload.count >= 2 {
+                    // Armure : `sf` est un octet SIGNÉ (positif = dièses, négatif = bémols, sur le
+                    // cercle des quintes), `mi` vaut 0 pour majeur, 1 pour mineur.
+                    let sharpsOrFlats = Int(Int8(bitPattern: payload[0]))
+                    let isMajor = payload[1] == 0
+                    events.append(RawEvent(tick: tick, kind: .keySignature(sharpsOrFlats: sharpsOrFlats,
+                                                                           isMajor: isMajor)))
                 } else if type == 0x2F {
                     break // fin de piste
                 }
@@ -321,6 +340,40 @@ public enum MIDIFileParser {
         }
         changes.sort { $0.tick < $1.tick }
         return TimeSignatureMap(ticksPerQuarterNote: ticksPerQuarterNote, changes: changes)
+    }
+
+    // MARK: - Armure déclarée par le fichier
+
+    /// La tonalité que le fichier déclare LUI-MÊME à un instant donné, si une piste porte un
+    /// méta-événement "Key Signature" avant ou à ce tick — `nil` sinon, ce qui laisse alors la
+    /// détection statistique de `KeyDetector` prendre le relais pour cette portion du morceau.
+    private struct KeySignatureMap {
+        /// (tick de début du segment, tonalité déclarée pendant ce segment), triés.
+        let changes: [(tick: Int, key: MusicalKey)]
+
+        func key(atTick target: Int) -> MusicalKey? {
+            var current: MusicalKey?
+            for change in changes {
+                guard change.tick <= target else { break }
+                current = change.key
+            }
+            return current
+        }
+    }
+
+    /// Rassemble les changements d'armure de TOUTES les pistes, pour la même raison que
+    /// `buildTempoMap` : rien n'impose qu'ils vivent tous sur la piste 0.
+    private static func buildKeySignatureMap(rawTracks: [[RawEvent]]) -> KeySignatureMap {
+        var changes: [(tick: Int, key: MusicalKey)] = []
+        for events in rawTracks {
+            for event in events {
+                if case .keySignature(let sharpsOrFlats, let isMajor) = event.kind {
+                    changes.append((event.tick, MusicalKey(sharpsOrFlats: sharpsOrFlats, isMajor: isMajor)))
+                }
+            }
+        }
+        changes.sort { $0.tick < $1.tick }
+        return KeySignatureMap(changes: changes)
     }
 }
 

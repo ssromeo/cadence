@@ -71,6 +71,31 @@ final class ExerciseGeneratorTests: XCTestCase {
                       "tous les exercices d'UNE MÊME mesure doivent partager exactement la même tonalité")
     }
 
+    /// Régression exacte du bogue "il m'a inventé une armure, y'a pas de bémol" : un passage dont
+    /// le contenu mélodique ressemble statistiquement à fa majeur (1 bémol) doit malgré tout
+    /// afficher do majeur (0 altération) quand le FICHIER déclare lui-même do majeur à cet
+    /// endroit — l'armure écrite prime toujours sur une corrélation statistique, aussi plausible
+    /// soit-elle.
+    func testDeclaredKeySignatureOverridesStatisticalGuessing() {
+        func noteAt(_ pitch: Int, start: Double, declaredKey: MusicalKey?) -> MIDINoteEvent {
+            MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.15,
+                         track: 0, channel: 0, measure: 18, declaredKey: declaredKey)
+        }
+        let cMajor = MusicalKey(tonicPitchClass: 0, isMajor: true)
+        // Un motif fa-do-la-fa-do-sol-mi-do : très fa-majeur d'allure (beaucoup de fa et de do,
+        // aucun si) si on le laissait deviner statistiquement, mais le fichier déclare do majeur.
+        let pitches = [77, 72, 81, 77, 72, 79, 76, 72]
+        let notes = pitches.enumerated().map { i, p in noteAt(p, start: Double(i) * 0.15, declaredKey: cMajor) }
+
+        var rng = SeededGenerator(seed: 64)
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        let fromMeasure18 = exercises.filter { $0.kind == .interval && $0.sourceMeasure == 18 }
+
+        XCTAssertFalse(fromMeasure18.isEmpty)
+        XCTAssertTrue(fromMeasure18.allSatisfy { $0.displayKey == cMajor },
+                      "l'armure déclarée par le fichier doit toujours l'emporter sur une simple estimation statistique")
+    }
+
     // MARK: - Depuis un morceau
 
     /// Régression : une mélodie (piste 0) et une basse (piste 1) qui jouent EN MÊME TEMPS ne

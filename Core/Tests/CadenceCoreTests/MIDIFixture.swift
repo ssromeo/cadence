@@ -34,6 +34,7 @@ enum MIDIFixture {
     static func singleTrack(ticksPerQuarterNote: Int = 480,
                             microsecondsPerQuarterNote: Int = 500_000,
                             timeSignature: (numerator: Int, denominatorPower: Int)? = nil,
+                            keySignatures: [(tick: Int, sharpsOrFlats: Int, isMajor: Bool)] = [],
                             notes: [NoteSpec]) -> Data {
         var events: [(tick: Int, order: Int, bytes: [UInt8])] = []
         events.append((0, -1, [0xFF, 0x51, 0x03,
@@ -47,6 +48,12 @@ enum MIDIFixture {
             events.append((0, -2, [0xFF, 0x58, 0x04,
                                    UInt8(timeSignature.numerator), UInt8(timeSignature.denominatorPower),
                                    24, 8]))
+        }
+        for (i, keySig) in keySignatures.enumerated() {
+            // Armure SMF : `sf` signé (dièses positifs, bémols négatifs), `mi` 0=majeur/1=mineur.
+            events.append((keySig.tick, -3 - i, [0xFF, 0x59, 0x02,
+                                                 UInt8(bitPattern: Int8(keySig.sharpsOrFlats)),
+                                                 keySig.isMajor ? 0 : 1]))
         }
         for (i, note) in notes.enumerated() {
             events.append((note.startTick, i * 2, [0x90 | UInt8(note.channel), UInt8(note.pitch), UInt8(note.velocity)]))

@@ -109,6 +109,50 @@ final class MIDIFileParserTests: XCTestCase {
         XCTAssertEqual(parsed.notes.map(\.measure), [1, 2, 3])
     }
 
+    /// Régression exacte du bogue signalé sur un vrai fichier : sans lire le méta-événement
+    /// "Key Signature" (0x59), le générateur d'exercices devait DEVINER l'armure depuis les notes
+    /// jouées, et a confondu do majeur (0 altération) avec fa majeur (1 bémol) — deux tonalités
+    /// qui ne diffèrent que d'une seule note. Le fichier déclarait pourtant lui-même do majeur à
+    /// cet endroit ; ce test vérifie que cette déclaration est bien lue et attachée aux notes.
+    func testAttachesTheDeclaredKeySignatureToEachNote() throws {
+        let data = MIDIFixture.singleTrack(keySignatures: [(tick: 0, sharpsOrFlats: 0, isMajor: true)], notes: [
+            .init(pitch: 60, startTick: 0, durationTick: 480),
+        ])
+
+        let parsed = try MIDIFileParser.parse(data: data)
+
+        XCTAssertEqual(parsed.notes[0].declaredKey, MusicalKey(tonicPitchClass: 0, isMajor: true))
+    }
+
+    /// Une armure peut CHANGER en cours de morceau (un vrai changement de tonalité, comme dans le
+    /// fichier utilisateur qui alterne mi majeur et do majeur) — chaque note doit recevoir
+    /// l'armure en vigueur à SON instant, pas celle du tout début du fichier.
+    func testDeclaredKeySignatureChangesMidPiece() throws {
+        let data = MIDIFixture.singleTrack(keySignatures: [
+            (tick: 0, sharpsOrFlats: 4, isMajor: true),      // mi majeur
+            (tick: 1920, sharpsOrFlats: 0, isMajor: true),   // puis do majeur, mesure 2
+        ], notes: [
+            .init(pitch: 60, startTick: 0, durationTick: 480),
+            .init(pitch: 62, startTick: 1920, durationTick: 480),
+        ])
+
+        let parsed = try MIDIFileParser.parse(data: data)
+
+        XCTAssertEqual(parsed.notes[0].declaredKey, MusicalKey(tonicPitchClass: 4, isMajor: true))
+        XCTAssertEqual(parsed.notes[1].declaredKey, MusicalKey(tonicPitchClass: 0, isMajor: true))
+    }
+
+    /// Un fichier qui ne déclare AUCUNE armure (beaucoup d'exports de clavier grand public) ne
+    /// doit rien inventer : `declaredKey` reste `nil`, laissant `KeyDetector` deviner depuis les
+    /// notes plutôt que de propager une fausse donnée "déclarée".
+    func testNoDeclaredKeySignatureLeavesItNil() throws {
+        let data = MIDIFixture.singleTrack(notes: [.init(pitch: 60, startTick: 0, durationTick: 480)])
+
+        let parsed = try MIDIFileParser.parse(data: data)
+
+        XCTAssertNil(parsed.notes[0].declaredKey)
+    }
+
     func testRejectsNonMIDIData() {
         let garbage = Data("pas un fichier MIDI".utf8)
         XCTAssertThrowsError(try MIDIFileParser.parse(data: garbage)) { error in
