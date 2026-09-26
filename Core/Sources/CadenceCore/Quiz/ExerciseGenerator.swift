@@ -62,7 +62,13 @@ public enum ExerciseGenerator {
     /// demandée.
     private static func simpleIntervalDisplayPitches(from pitchClass: Int, quality: IntervalQuality,
                                                      ascending: Bool) -> [Int] {
-        let fromDisplay = 55 + pitchClass // ré3 à ré4 selon la classe : toujours près de la portée
+        // 60 = do central, et SURTOUT un multiple de 12 : ajouter la classe de hauteur (0-11) à
+        // une base qui n'en est pas un multiple aurait décalé la classe de hauteur RÉSULTANTE —
+        // c'est exactement le bug corrigé ici. Une base de 55 (sol3, 55 % 12 = 7) donnait une
+        // note affichée dont la classe de hauteur était systématiquement décalée de 7 demi-tons
+        // par rapport à la vraie note du morceau : un ré (classe 2) devenait un la (classe 9)
+        // à l'écran. Avec 60 % 12 == 0, `60 + pitchClass` reproduit EXACTEMENT `pitchClass`.
+        let fromDisplay = 60 + pitchClass
         let toDisplay = ascending ? fromDisplay + quality.rawValue : fromDisplay - quality.rawValue
         return [fromDisplay, toDisplay]
     }

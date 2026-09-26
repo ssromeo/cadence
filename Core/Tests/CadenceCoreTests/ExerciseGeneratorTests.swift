@@ -203,6 +203,21 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertTrue(exercise.explanation.contains("4"))
     }
 
+    /// Régression : les notes AFFICHÉES doivent porter la MÊME classe de hauteur (même nom de
+    /// note, dièse/bémol compris) que les notes RÉELLEMENT jouées dans le morceau — seule
+    /// l'octave peut changer. Un bug précédent utilisait une base de transposition (55) qui
+    /// n'était pas un multiple de 12, décalant silencieusement la classe de hauteur affichée :
+    /// l'intervalle montré ne correspondait plus à aucune paire de notes du fichier d'origine.
+    func testIntervalDisplayPitchesKeepTheSamePitchClassesAsTheRealNotes() {
+        let notes = [note(62, at: 0), note(66, at: 1)] // ré4 → fa♯4 : tierce majeure réelle
+        var rng = SeededGenerator(seed: 32)
+
+        let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+            .first { $0.kind == .interval }!
+
+        XCTAssertEqual(exercise.notes.map { $0 % 12 }, [62 % 12, 66 % 12])
+    }
+
     func testCMajorHasNoAccidentals() {
         let cMajor = MusicalKey(tonicPitchClass: 0, isMajor: true)
         XCTAssertEqual(cMajor.accidentalCount, 0)
