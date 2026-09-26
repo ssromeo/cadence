@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict/>
+
+	<!-- C'EST CE QUI MANQUAIT. Sans ces déclarations, iOS et le simulateur ne savent tout
+	     simplement pas que Cadence sait ouvrir un ".mid" : glisser le fichier sur l'app échoue
+	     ("failed to open"), et il n'apparaîtrait pas non plus dans le menu "Ouvrir avec…" des
+	     Fichiers ou de Mail. `public.midi-audio` est le type système standard pour le MIDI ;
+	     `com.cadence.midi` est un type de secours déclaré à la main pour les fichiers dont
+	     l'extension seule (.mid/.midi) suffit à les reconnaître, au cas où le fichier source
+	     n'aurait pas été correctement étiqueté à sa création. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cadence.midi</string>
+			<key>UTTypeDescription</key>
+			<string>Fichier MIDI</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.audio</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mid</string>
+					<string>midi</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Fichier MIDI</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.midi-audio</string>
+				<string>com.cadence.midi</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Pour pouvoir aussi glisser le fichier depuis le Finder du Mac directement dans l'app
+	     via Fichiers > Sur mon iPhone > Cadence, sans passer par le sélecteur de documents. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+</dict>
+</plist>
