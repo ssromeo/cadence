@@ -41,9 +41,23 @@ struct RootView: View {
             }
             // Saute directement dans UNE étape précise du parcours d'une gamme, sans avoir à
             // simuler les appuis qui y mènent — utile pour vérifier un type d'exercice précis
-            // (mi majeur, choisi arbitrairement, sert juste de tonalité de test).
-            if mode.hasPrefix("focus:"), let focus = ExerciseGenerator.ScaleFocus(rawValue: String(mode.dropFirst(6))) {
+            // (mi majeur, choisi arbitrairement, sert juste de tonalité de test). Un suffixe
+            // ":right" ou ":wrong" répond en plus À LA PLACE d'un appui, pour vérifier l'état
+            // "déjà répondu" (la couleur de la barre de progression, notamment) par capture
+            // d'écran plutôt qu'en simulant un tap dont les coordonnées ne sont pas fiables sur
+            // un simulateur dont la fenêtre peut bouger.
+            if mode.hasPrefix("focus:") {
+                let rest = String(mode.dropFirst(6))
+                let parts = rest.split(separator: ":", maxSplits: 1)
+                guard let focus = ExerciseGenerator.ScaleFocus(rawValue: String(parts[0])) else { return }
                 store.startScaleFocus(key: MusicalKey(tonicPitchClass: 4, isMajor: true), focus: focus)
+                if parts.count > 1, let exercise = store.currentExercise {
+                    if parts[1] == "right" {
+                        store.answer(exercise.correctIndex)
+                    } else if parts[1] == "wrong" {
+                        store.answer((exercise.correctIndex + 1) % exercise.choices.count)
+                    }
+                }
                 tab = .quiz
                 return
             }

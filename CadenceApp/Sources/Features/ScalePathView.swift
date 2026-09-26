@@ -35,6 +35,12 @@ struct ScalePathView: View {
         ZStack(alignment: .top) {
             if let node = activeNode {
                 QuizView()
+                    // Le bouton retour flotte au-dessus, DANS ce même `ZStack` — sans cette
+                    // marge, sa pastille de 40 pt recouvrait les premiers segments de la barre
+                    // de progression de `QuizView`, posée elle aussi tout en haut. `QuizView`
+                    // n'a pas à savoir qu'un bouton retour existe au-dessus d'elle ; c'est ici,
+                    // au point d'assemblage, que l'espace lui est réservé.
+                    .padding(.top, 52)
                     // Le retour au parcours marque LE NIVEAU terminé — c'est le seul signal
                     // fiable qu'on ait : `store.isFinished` ne devient vrai qu'après la dernière
                     // bonne ou mauvaise réponse, jamais en cours de route.

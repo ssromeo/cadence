@@ -222,16 +222,28 @@ struct QuizView: View {
 
     // MARK: – Progression
 
+    /// Verte pour une bonne réponse, rouge pour une mauvaise — un simple "déjà répondu" en corail
+    /// ne disait rien du résultat, alors que c'est justement ce qu'une barre de progression de
+    /// quiz doit montrer d'un coup d'œil.
     private var progressBar: some View {
         HStack(spacing: 5) {
             ForEach(store.exercises.indices, id: \.self) { i in
                 Capsule()
-                    .fill(i < store.currentExerciseIndex ? C.coral
-                          : i == store.currentExerciseIndex ? C.ink.opacity(0.5) : C.line)
+                    .fill(segmentColor(at: i))
                     .frame(height: 5)
             }
         }
         .animation(.easeOut(duration: 0.25), value: store.currentExerciseIndex)
+    }
+
+    private func segmentColor(at index: Int) -> Color {
+        if store.answerHistory.indices.contains(index) {
+            return store.answerHistory[index] ? C.good : C.bad
+        } else if index == store.currentExerciseIndex {
+            return C.ink.opacity(0.5)
+        } else {
+            return C.line
+        }
     }
 
     // MARK: – Choix

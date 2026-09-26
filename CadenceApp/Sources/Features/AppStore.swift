@@ -50,6 +50,10 @@ final class AppStore {
     var currentExerciseIndex = 0
     var lastAnswerWasCorrect: Bool?
     var score = 0
+    /// Une entrée par question déjà répondue, dans l'ordre — ce que la barre de progression
+    /// affiche : verte pour une bonne réponse, rouge pour une mauvaise, jamais une seule couleur
+    /// neutre qui ne dirait rien du résultat.
+    private(set) var answerHistory: [Bool] = []
 
     private var rng = SystemRandomNumberGenerator()
     /// Jeton d'annulation informel : si un second import démarre pendant qu'un premier tourne
@@ -152,13 +156,13 @@ final class AppStore {
         currentExerciseIndex = 0
         score = 0
         lastAnswerWasCorrect = nil
+        answerHistory = []
     }
 
     func answer(_ choiceIndex: Int) {
         guard let exercise = currentExercise else { return }
         let correct = exercise.isCorrect(choiceIndex)
-        lastAnswerWasCorrect = correct
-        if correct { score += 1 }
+        record(correct)
     }
 
     /// Répondre en tapant directement sur un clavier plutôt qu'en choisissant parmi le QCM — voir
@@ -168,8 +172,20 @@ final class AppStore {
     func answerPianoTap(pitchClass: Int) {
         guard let exercise = currentExercise, let pitch = exercise.notes.first else { return }
         let correct = pitchClass == (((pitch % 12) + 12) % 12)
+        record(correct)
+    }
+
+    private func record(_ correct: Bool) {
         lastAnswerWasCorrect = correct
         if correct { score += 1 }
+        // Une entrée par INDEX de question, jamais deux — les boutons se désactivent après une
+        // réponse, mais en cas d'appel répété on écrase plutôt que d'empiler une seconde entrée
+        // qui décalerait toutes les couleurs suivantes de la barre.
+        if answerHistory.count > currentExerciseIndex {
+            answerHistory[currentExerciseIndex] = correct
+        } else {
+            answerHistory.append(correct)
+        }
     }
 
     func advanceToNextExercise() {
