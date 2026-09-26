@@ -7,26 +7,26 @@ struct RootView: View {
     @State private var tab: RootTab = .home
 
     var body: some View {
-        Group {
-            switch tab {
-            case .home:
-                HomeView(selectedTab: $tab)
-                    .transition(.opacity)
-            case .quiz:
-                QuizView()
-                    .transition(.opacity)
-            case .scales:
-                ScalesView()
-                    .transition(.opacity)
-            }
+        // LES TROIS ÉCRANS RESTENT MONTÉS EN PERMANENCE — seule leur opacité bascule. La version
+        // précédente les faisait apparaître/disparaître via un `switch`, ce qui les détruit et
+        // les reconstruit à chaque passage : `HomeView` en particulier héberge `LivingOrb`, un
+        // shader Metal animé image par image, dont le pipeline doit se recompiler/se relier à
+        // chaque reconstruction — c'est CE coût, pas l'animation elle-même, qui rendait le
+        // changement d'onglet saccadé. En gardant les trois vues vivantes et en ne faisant varier
+        // que leur opacité (plus `allowsHitTesting` pour qu'une vue invisible n'intercepte plus
+        // les touchers), plus aucune reconstruction n'a jamais lieu après le premier lancement.
+        ZStack {
+            HomeView(selectedTab: $tab)
+                .opacity(tab == .home ? 1 : 0)
+                .allowsHitTesting(tab == .home)
+            QuizView()
+                .opacity(tab == .quiz ? 1 : 0)
+                .allowsHitTesting(tab == .quiz)
+            ScalesView()
+                .opacity(tab == .scales ? 1 : 0)
+                .allowsHitTesting(tab == .scales)
         }
-        // PAS de `.animation(value: tab)` ici en plus du `withAnimation` posé sur chaque bouton
-        // de `navItem` — les deux ensemble faisaient tourner DEUX animations concurrentes sur le
-        // même changement d'état (l'une déclenchée implicitement par ce modificateur, l'autre
-        // explicitement par `withAnimation`), qui se marchaient dessus : la transition sautait
-        // ou clignotait au lieu de fondre proprement. Une SEULE source d'animation par
-        // changement d'onglet, posée au point où `tab` change réellement — jamais les deux à
-        // la fois — et le fondu (`.opacity` seul, pas de `.scale`) reste net dans tous les cas.
+        .animation(.easeInOut(duration: 0.2), value: tab)
         .environment(store)
         // Crochet de VÉRIFICATION VISUELLE uniquement — jamais construit en release. Il importe
         // automatiquement un fichier déposé dans Documents et bascule sur les exercices, pour
