@@ -83,4 +83,38 @@ public enum HarmonicAnalyzer {
         guard sorted.count >= 2 else { return [] }
         return zip(sorted, sorted.dropFirst()).map { MelodicInterval(from: $0, to: $1) }
     }
+
+    /// Isole LA voix mélodique d'un morceau à plusieurs voix (typiquement la main droite d'une
+    /// partition de piano), pour que `melodicIntervals` ne calcule plus d'intervalle entre deux
+    /// notes qui n'ont aucun lien mélodique réel.
+    ///
+    /// **Le problème que ça résout.** Appelée sans filtre sur un morceau à deux mains, la
+    /// fonction ci-dessus trie TOUTES les notes du fichier par instant de départ et calcule un
+    /// intervalle entre chaque paire consécutive — y compris entre la dernière note de la
+    /// mélodie et la note de basse suivante. Un tel "intervalle" n'a jamais existé dans
+    /// l'intention du compositeur : ce ne sont pas deux notes d'une même ligne, juste deux notes
+    /// qui se trouvent proches dans le temps. Un exercice construit dessus n'a donc pas de
+    /// réponse musicalement valide — exactement le défaut signalé sur un export réel.
+    ///
+    /// **La méthode.** On regroupe les notes par VOIX (piste + canal MIDI — la manière dont un
+    /// export de partition sépare presque toujours les mains), on retient celle dont la hauteur
+    /// MOYENNE est la plus élevée (la mélodie se joue, par convention, au-dessus de
+    /// l'accompagnement), puis on ne garde qu'UNE note par instant de départ à l'intérieur de
+    /// cette voix (la plus aiguë, en cas d'accord ou de doublure d'octave) — pour que le résultat
+    /// soit une vraie ligne à une seule note à la fois, jamais un empilement.
+    public static func melodicLine(from notes: [MIDINoteEvent]) -> [MIDINoteEvent] {
+        struct Voice: Hashable { let track: Int; let channel: Int }
+        let byVoice = Dictionary(grouping: notes, by: { Voice(track: $0.track, channel: $0.channel) })
+        guard let melody = byVoice.values.max(by: { averagePitch($0) < averagePitch($1) }) else { return [] }
+
+        let byStart = Dictionary(grouping: melody, by: \.startSeconds)
+        return byStart.values
+            .compactMap { simultaneous in simultaneous.max { $0.pitch < $1.pitch } }
+            .sorted { $0.startSeconds < $1.startSeconds }
+    }
+
+    private static func averagePitch(_ notes: [MIDINoteEvent]) -> Double {
+        guard !notes.isEmpty else { return -.infinity }
+        return Double(notes.reduce(0) { $0 + $1.pitch }) / Double(notes.count)
+    }
 }

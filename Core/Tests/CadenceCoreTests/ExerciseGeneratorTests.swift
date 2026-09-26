@@ -9,6 +9,38 @@ final class ExerciseGeneratorTests: XCTestCase {
 
     // MARK: - Depuis un morceau
 
+    /// Régression : une mélodie (piste 0) et une basse (piste 1) qui jouent EN MÊME TEMPS ne
+    /// doivent jamais produire un "intervalle" entre une note de l'une et une note de l'autre —
+    /// voir `HarmonicAnalyzer.melodicLine`. Sans cet isolement, trier toutes les notes par
+    /// instant de départ mélangeait les deux mains et produisait des paires qui n'existent pas
+    /// musicalement.
+    func testIntervalsNeverMixTwoDifferentVoices() {
+        let melody = [note(72, at: 0), note(74, at: 1), note(76, at: 2)] // do5-ré5-mi5, piste 0
+        let bass = [MIDINoteEvent(pitch: 36, velocity: 80, startSeconds: 0.5, durationSeconds: 0.4, track: 1, channel: 0),
+                   MIDINoteEvent(pitch: 38, velocity: 80, startSeconds: 1.5, durationSeconds: 0.4, track: 1, channel: 0)]
+        var rng = SeededGenerator(seed: 40)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: melody + bass, rng: &rng)
+        let intervalCount = exercises.filter { $0.kind == .interval }.count
+
+        // Trois notes de mélodie ⇒ exactement DEUX intervalles consécutifs. Si les notes de basse
+        // s'étaient mélangées (les 5 notes triées par instant donneraient 4 paires), ce compte
+        // serait plus élevé — la seule façon de le vérifier depuis l'extérieur, puisque
+        // `simpleIntervalDisplayPitches` retranspose de toute façon l'affichage.
+        XCTAssertEqual(intervalCount, 2, "des notes de basse se sont probablement mélangées à la mélodie")
+    }
+
+    /// Régression : une longue pause entre deux notes de la MÊME voix ne doit pas non plus
+    /// produire un exercice — ce n'est pas un geste mélodique continu, mais deux phrases
+    /// distinctes.
+    func testLongSilenceBetweenNotesProducesNoIntervalAcrossIt() {
+        let notes = [note(60, at: 0), note(64, at: 10)] // même voix, 10 secondes d'écart
+        var rng = SeededGenerator(seed: 41)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        XCTAssertFalse(exercises.contains { $0.kind == .interval })
+    }
+
     func testGeneratesIntervalAndChordExercisesFromMusic() {
         let notes =
             [note(60, at: 0), note(64, at: 0), note(67, at: 0)] +   // accord de do majeur

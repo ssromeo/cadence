@@ -24,7 +24,18 @@ public enum ExerciseGenerator {
 
     private static func intervalExercises(from notes: [MIDINoteEvent],
                                           rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
-        HarmonicAnalyzer.melodicIntervals(from: notes).map { interval in
+        // UNE SEULE voix, pas le fichier entier mélangé — voir `HarmonicAnalyzer.melodicLine`.
+        // Sans cet isolement, un morceau à deux mains produisait des "intervalles" entre la
+        // dernière note de la mélodie et la note de basse suivante : une paire qui n'existe pas
+        // musicalement, sans réponse juste possible.
+        let melody = HarmonicAnalyzer.melodicLine(from: notes)
+        let coherentIntervals = HarmonicAnalyzer.melodicIntervals(from: melody).filter {
+            // Un silence trop long entre deux notes veut dire qu'on a franchi une frontière de
+            // phrase, pas qu'on a bougé d'un intervalle : la relation qu'on demanderait de nommer
+            // ne serait plus un geste mélodique continu.
+            $0.to.startSeconds - $0.from.startSeconds <= 2.0
+        }
+        return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
