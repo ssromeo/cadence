@@ -16,13 +16,17 @@ public enum ExerciseGenerator {
     /// morceau — le principe différenciant du pilier 1 : on s'entraîne sur SA musique.
     public static func fromImportedMusic(notes: [MIDINoteEvent],
                                          rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
-        var exercises = intervalExercises(from: notes, rng: &rng)
-        exercises += chordExercises(from: notes, rng: &rng)
+        // Calculée UNE fois pour tout le morceau — voir `HarmonicAnalyzer.canonicalMeasureMap` :
+        // un fichier exporté avec une reprise déjà "déroulée" numérote sinon deux fois la même
+        // mesure imprimée, la seconde fois sous un numéro qui n'existe nulle part sur la partition.
+        let canonicalMeasure = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+        var exercises = intervalExercises(from: notes, canonicalMeasure: canonicalMeasure, rng: &rng)
+        exercises += chordExercises(from: notes, canonicalMeasure: canonicalMeasure, rng: &rng)
         exercises.shuffle(using: &rng)
         return exercises
     }
 
-    private static func intervalExercises(from notes: [MIDINoteEvent],
+    private static func intervalExercises(from notes: [MIDINoteEvent], canonicalMeasure: [Int: Int],
                                           rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
         // UNE SEULE voix, pas le fichier entier mélangé — voir `HarmonicAnalyzer.melodicLine`.
         // Sans cet isolement, un morceau à deux mains produisait des "intervalles" entre la
@@ -45,7 +49,7 @@ public enum ExerciseGenerator {
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: interval.quality)!,
                 explanation: intervalExplanation(interval.quality),
-                sourceMeasure: interval.from.measure)
+                sourceMeasure: canonicalMeasure[interval.from.measure] ?? interval.from.measure)
         }
     }
 
@@ -132,7 +136,7 @@ public enum ExerciseGenerator {
         return choices
     }
 
-    private static func chordExercises(from notes: [MIDINoteEvent],
+    private static func chordExercises(from notes: [MIDINoteEvent], canonicalMeasure: [Int: Int],
                                        rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
         HarmonicAnalyzer.clusterChords(from: notes).compactMap { cluster -> GeneratedExercise? in
             guard let chord = ChordIdentifier.identify(pitchClasses: cluster.pitchClasses,
@@ -143,13 +147,14 @@ public enum ExerciseGenerator {
             var choices = Array(pool.prefix(3)) + [chord.quality]
             choices.shuffle(using: &rng)
 
+            let rawMeasure = cluster.notes.first?.measure
             return GeneratedExercise(
                 kind: .chordQuality, prompt: "Quelle est la qualité de cet accord ?",
                 notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!,
                 explanation: chordExplanation(chord.quality),
-                sourceMeasure: cluster.notes.first?.measure)
+                sourceMeasure: rawMeasure.map { canonicalMeasure[$0] ?? $0 })
         }
     }
 

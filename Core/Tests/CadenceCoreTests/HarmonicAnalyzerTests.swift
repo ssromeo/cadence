@@ -79,4 +79,55 @@ final class HarmonicAnalyzerTests: XCTestCase {
         XCTAssertEqual(intervals.count, 1)
         XCTAssertEqual(intervals[0].semitones, 2)
     }
+
+    // MARK: - Repli des mesures répétées (barre de reprise)
+
+    private func note(_ pitch: Int, at start: Double, measure: Int, track: Int = 0) -> MIDINoteEvent {
+        MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.4,
+                     track: track, channel: 0, measure: measure)
+    }
+
+    func testCanonicalMeasureMapFoldsAnExactRepeatOntoItsFirstOccurrence() {
+        // Mesures 1 et 2 : contenu original. Mesures 3 et 4 : reprise EXACTE de 1 et 2 — comme un
+        // fichier MIDI qui a "déroulé" une barre de reprise plutôt que de la coder comme telle.
+        let notes = [
+            note(60, at: 0, measure: 1), note(64, at: 0.5, measure: 1),
+            note(67, at: 1.0, measure: 2),
+            note(60, at: 2.0, measure: 3), note(64, at: 2.5, measure: 3), // = mesure 1
+            note(67, at: 3.0, measure: 4),                                 // = mesure 2
+        ]
+
+        let map = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+
+        XCTAssertEqual(map[1], 1)
+        XCTAssertEqual(map[2], 2)
+        XCTAssertEqual(map[3], 1, "la mesure 3 répète note pour note la mesure 1")
+        XCTAssertEqual(map[4], 2, "la mesure 4 répète note pour note la mesure 2")
+    }
+
+    func testCanonicalMeasureMapLeavesDifferentContentUntouched() {
+        let notes = [
+            note(60, at: 0, measure: 1),
+            note(62, at: 1.0, measure: 2), // différent de la mesure 1 : pas une reprise
+        ]
+
+        let map = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+
+        XCTAssertEqual(map[1], 1)
+        XCTAssertEqual(map[2], 2)
+    }
+
+    func testCanonicalMeasureMapComparesAllVoicesNotJustOneTrack() {
+        // Même mélodie (piste 0) aux deux mesures, mais un accompagnement DIFFÉRENT (piste 1) —
+        // ce n'est pas une vraie reprise, tout le passage doit rester distinct.
+        let notes = [
+            note(60, at: 0, measure: 1, track: 0), note(36, at: 0, measure: 1, track: 1),
+            note(60, at: 1.0, measure: 2, track: 0), note(38, at: 1.0, measure: 2, track: 1),
+        ]
+
+        let map = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+
+        XCTAssertEqual(map[1], 1)
+        XCTAssertEqual(map[2], 2, "l'accompagnement diffère : ce n'est pas la même mesure")
+    }
 }

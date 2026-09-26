@@ -117,4 +117,46 @@ public enum HarmonicAnalyzer {
         guard !notes.isEmpty else { return -.infinity }
         return Double(notes.reduce(0) { $0 + $1.pitch }) / Double(notes.count)
     }
+
+    /// Replie chaque mesure sur le numéro de sa PREMIÈRE apparition, quand son contenu (toutes
+    /// voix confondues) est note pour note identique à une mesure antérieure.
+    ///
+    /// **Le problème que ça résout.** Un morceau écrit avec une barre de reprise (jouer les
+    /// mesures 5 à 20, revenir à la 5, rejouer jusqu'à la 20) est souvent EXPORTÉ en MIDI déjà
+    /// "déroulé" : les mesures 5-20 apparaissent deux fois de suite dans le fichier. Compter les
+    /// mesures depuis le début du fichier, sans savoir qu'une reprise a eu lieu, donne donc à la
+    /// second passe des numéros (21, 22…) qui n'existent nulle part dans la partition IMPRIMÉE —
+    /// exactement le défaut signalé : "je regarde la mesure 20 [que l'appli affichait en réalité
+    /// comme 36] et il n'y a rien de tel". En détectant qu'une mesure reproduit EXACTEMENT une
+    /// mesure déjà vue plus tôt, on rapporte toujours le numéro que la partition imprime réellement.
+    ///
+    /// **Pourquoi "toutes voix confondues" plutôt que la seule mélodie.** Une reprise rejoue
+    /// TOUT — mélodie et accompagnement — donc comparer l'ensemble des notes (peu importe leur
+    /// piste) élimine le risque qu'une mélodie répétitive coïncide par hasard sans que ce soit
+    /// une vraie reprise.
+    public static func canonicalMeasureMap(for notes: [MIDINoteEvent]) -> [Int: Int] {
+        guard let maxMeasure = notes.map(\.measure).max() else { return [:] }
+        let byMeasure = Dictionary(grouping: notes, by: \.measure)
+
+        func signature(_ measure: Int) -> String {
+            (byMeasure[measure] ?? [])
+                .sorted { $0.startSeconds < $1.startSeconds }
+                .map { "\($0.track).\($0.pitch)" }
+                .joined(separator: ",")
+        }
+
+        var firstOccurrence: [String: Int] = [:]
+        var mapping: [Int: Int] = [:]
+        for measure in 1...maxMeasure {
+            let sig = signature(measure)
+            guard !sig.isEmpty else { mapping[measure] = measure; continue }
+            if let earlier = firstOccurrence[sig] {
+                mapping[measure] = earlier
+            } else {
+                firstOccurrence[sig] = measure
+                mapping[measure] = measure
+            }
+        }
+        return mapping
+    }
 }
