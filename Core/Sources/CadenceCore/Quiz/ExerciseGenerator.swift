@@ -28,10 +28,29 @@ public enum ExerciseGenerator {
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
             return GeneratedExercise(
                 kind: .interval, prompt: "Quel est cet intervalle ?",
-                notes: [interval.from.pitch, interval.to.pitch], stacked: false,
+                notes: centeredForDisplay([interval.from.pitch, interval.to.pitch]), stacked: false,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: interval.quality)!)
         }
+    }
+
+    /// Décale tout un groupe de hauteurs d'un nombre ENTIER d'octaves, pour que la plus grave
+    /// tombe près d'une zone confortable autour de la portée — sans jamais changer l'écart entre
+    /// les notes, donc ni l'accord ni l'intervalle qu'elles forment, seulement leur registre
+    /// D'AFFICHAGE.
+    ///
+    /// **Pourquoi c'est nécessaire.** Ces hauteurs viennent d'un morceau RÉEL, pas d'une gamme
+    /// choisie à la main — rien ne garantit qu'elles tombent près du do central. Une mélodie
+    /// enregistrée deux octaves au-dessus (un synthé aigu, par exemple) produirait une portée
+    /// couverte de lignes supplémentaires au point de chevaucher le texte de la question
+    /// au-dessus. Décaler par octaves ENTIÈRES préserve exactement la qualité de l'intervalle ou
+    /// de l'accord (elle ne dépend que de l'écart en demi-tons, invariant par octave) — seul le
+    /// registre affiché change.
+    private static func centeredForDisplay(_ pitches: [Int]) -> [Int] {
+        guard let lowest = pitches.min() else { return pitches }
+        let comfortableLow = 55 // sol3 : sous la portée de peu, la plupart des notes réelles n'ont alors besoin que d'une ou deux lignes supplémentaires au plus
+        let octaves = Int((Double(comfortableLow - lowest) / 12).rounded())
+        return pitches.map { $0 + octaves * 12 }
     }
 
     /// Leurres PROCHES de la bonne réponse, jamais tirés au hasard sur les treize qualités —
@@ -69,7 +88,7 @@ public enum ExerciseGenerator {
 
             return GeneratedExercise(
                 kind: .chordQuality, prompt: "Quelle est la qualité de cet accord ?",
-                notes: cluster.notes.map(\.pitch).sorted(), stacked: true,
+                notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!)
         }

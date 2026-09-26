@@ -45,6 +45,36 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertEqual(exercise.choices[exercise.correctIndex], ChordQuality.major.displayName)
     }
 
+    /// Régression : un morceau réel enregistré dans un registre extrême (un synthé aigu, par
+    /// exemple) ne doit jamais produire un exercice dont les notes affichées débordent au point de
+    /// chevaucher le reste de l'écran — voir `centeredForDisplay`.
+    func testExtremeRegisterIntervalIsBroughtIntoAComfortableRange() {
+        let notes = [note(96, at: 0), note(103, at: 1)] // très aigu : sol6 à sol7
+        var rng = SeededGenerator(seed: 20)
+
+        let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+            .first { $0.kind == .interval }!
+
+        XCTAssertTrue(exercise.notes.allSatisfy { (40...84).contains($0) },
+                      "les notes affichées devraient être ramenées près du do central, pas \(exercise.notes)")
+        // L'écart réel (7 demi-tons, une quinte) doit rester intact malgré le recentrage.
+        XCTAssertEqual(abs(exercise.notes[1] - exercise.notes[0]), 7)
+    }
+
+    func testExtremeRegisterChordIsBroughtIntoAComfortableRange() {
+        let notes = [note(96, at: 0), note(100, at: 0), note(103, at: 0)] // do7 majeur, très aigu
+        var rng = SeededGenerator(seed: 21)
+
+        let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+            .first { $0.kind == .chordQuality }!
+
+        XCTAssertTrue(exercise.notes.allSatisfy { (40...84).contains($0) },
+                      "les notes affichées devraient être ramenées près du do central, pas \(exercise.notes)")
+        // La forme de l'accord (les écarts entre ses notes) doit rester intacte.
+        XCTAssertEqual(exercise.notes[1] - exercise.notes[0], 4)
+        XCTAssertEqual(exercise.notes[2] - exercise.notes[1], 3)
+    }
+
     func testUnrecognizableClusterProducesNoChordExercise() {
         // do-do dièse-ré : cluster chromatique, aucun accord tonal reconnu — ne doit PAS
         // produire un exercice avec une "bonne réponse" qui n'existe pas.
