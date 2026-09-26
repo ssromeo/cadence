@@ -28,15 +28,26 @@ enum MIDIFixture {
         }
     }
 
-    /// Fichier à une seule piste (format 0), avec un unique changement de tempo au début.
+    /// Fichier à une seule piste (format 0), avec un unique changement de tempo au début, et
+    /// optionnellement une signature rythmique — sans elle, le parseur doit supposer 4/4, la
+    /// valeur implicite standard MIDI.
     static func singleTrack(ticksPerQuarterNote: Int = 480,
                             microsecondsPerQuarterNote: Int = 500_000,
+                            timeSignature: (numerator: Int, denominatorPower: Int)? = nil,
                             notes: [NoteSpec]) -> Data {
         var events: [(tick: Int, order: Int, bytes: [UInt8])] = []
         events.append((0, -1, [0xFF, 0x51, 0x03,
                                UInt8((microsecondsPerQuarterNote >> 16) & 0xFF),
                                UInt8((microsecondsPerQuarterNote >> 8) & 0xFF),
                                UInt8(microsecondsPerQuarterNote & 0xFF)]))
+        if let timeSignature {
+            // Signature rythmique SMF : numérateur, dénominateur en puissance de 2, horloges par
+            // clic de métronome et 32des par noire — ces deux derniers ne comptent pas pour le
+            // calcul de mesure, mais le méta-événement les exige (longueur fixe de 4 octets).
+            events.append((0, -2, [0xFF, 0x58, 0x04,
+                                   UInt8(timeSignature.numerator), UInt8(timeSignature.denominatorPower),
+                                   24, 8]))
+        }
         for (i, note) in notes.enumerated() {
             events.append((note.startTick, i * 2, [0x90 | UInt8(note.channel), UInt8(note.pitch), UInt8(note.velocity)]))
             // La coupure est un "note on" vélocité 0 pour une moitié des notes, un vrai

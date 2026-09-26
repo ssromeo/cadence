@@ -80,6 +80,35 @@ final class MIDIFileParserTests: XCTestCase {
         XCTAssertEqual(parsed.notes[1].startSeconds, 1.25, accuracy: 1e-6)
     }
 
+    func testAssumesFourFourWhenNoTimeSignatureIsDeclared() throws {
+        // Aucune signature déclarée ⇒ 4/4 supposé, soit 4 noires (1920 ticks à 480/noire) par
+        // mesure. Une note à 1920+ ticks doit donc tomber en mesure 2.
+        let data = MIDIFixture.singleTrack(notes: [
+            .init(pitch: 60, startTick: 0, durationTick: 480),
+            .init(pitch: 62, startTick: 1920, durationTick: 480),
+        ])
+
+        let parsed = try MIDIFileParser.parse(data: data)
+
+        XCTAssertEqual(parsed.notes[0].measure, 1)
+        XCTAssertEqual(parsed.notes[1].measure, 2)
+    }
+
+    func testComputesMeasureNumberForACompoundTimeSignature() throws {
+        // 6/8 à 480 ticks/noire : une mesure vaut 6 croches = 3 noires = 1440 ticks — le cas
+        // précis signalé sur un vrai fichier en 6/8, où compter en "4 temps" donnerait un faux
+        // numéro de mesure.
+        let data = MIDIFixture.singleTrack(timeSignature: (numerator: 6, denominatorPower: 3), notes: [
+            .init(pitch: 60, startTick: 0, durationTick: 240),
+            .init(pitch: 62, startTick: 1440, durationTick: 240),   // début de la mesure 2
+            .init(pitch: 64, startTick: 2880, durationTick: 240),   // début de la mesure 3
+        ])
+
+        let parsed = try MIDIFileParser.parse(data: data)
+
+        XCTAssertEqual(parsed.notes.map(\.measure), [1, 2, 3])
+    }
+
     func testRejectsNonMIDIData() {
         let garbage = Data("pas un fichier MIDI".utf8)
         XCTAssertThrowsError(try MIDIFileParser.parse(data: garbage)) { error in

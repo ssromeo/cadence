@@ -47,9 +47,15 @@ public struct GeneratedExercise: Identifiable, Sendable {
     /// quand on se trompe : "c'était une tierce majeure" ne dit rien sur COMMENT le voir la
     /// prochaine fois, "il y a 4 demi-tons entre ces deux notes" si.
     public let explanation: String
+    /// La mesure d'origine dans le morceau importé — `nil` pour un exercice qui ne vient PAS
+    /// d'un morceau (une gamme choisie n'a pas de partition à laquelle se référer). Sert
+    /// uniquement à VÉRIFIER un exercice contre sa partition, jamais au calcul lui-même : sans
+    /// ce repère, impossible de confirmer qu'un intervalle généré existe bien à tel endroit du
+    /// fichier plutôt que d'y faire simplement confiance sur parole.
+    public let sourceMeasure: Int?
 
     public init(kind: ExerciseKind, prompt: String, notes: [Int] = [], stacked: Bool = false,
-                choices: [String], correctIndex: Int, explanation: String = "") {
+                choices: [String], correctIndex: Int, explanation: String = "", sourceMeasure: Int? = nil) {
         self.id = UUID()
         self.kind = kind
         self.prompt = prompt
@@ -58,6 +64,7 @@ public struct GeneratedExercise: Identifiable, Sendable {
         self.choices = choices
         self.correctIndex = correctIndex
         self.explanation = explanation
+        self.sourceMeasure = sourceMeasure
     }
 
     public func isCorrect(_ choiceIndex: Int) -> Bool { choiceIndex == correctIndex }

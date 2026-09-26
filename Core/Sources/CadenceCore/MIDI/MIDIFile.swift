@@ -11,15 +11,21 @@ public struct MIDINoteEvent: Equatable, Sendable {
     public let durationSeconds: Double
     public let track: Int
     public let channel: Int
+    /// Numéro de mesure (1-indexé) où cette note commence — ce qui permet de retrouver un
+    /// exercice dans la partition imprimée, pas seulement de faire confiance à l'algorithme.
+    /// `1` par défaut : les notes construites à la main (tests, gammes) n'ont pas de mesure
+    /// réelle à rapporter, seul un fichier importé en calcule une.
+    public let measure: Int
 
     public init(pitch: Int, velocity: Int, startSeconds: Double, durationSeconds: Double,
-                track: Int, channel: Int) {
+                track: Int, channel: Int, measure: Int = 1) {
         self.pitch = pitch
         self.velocity = velocity
         self.startSeconds = startSeconds
         self.durationSeconds = durationSeconds
         self.track = track
         self.channel = channel
+        self.measure = measure
     }
 
     public var endSeconds: Double { startSeconds + durationSeconds }
@@ -80,6 +86,7 @@ public enum MIDIFileParser {
         }
 
         let tempoMap = buildTempoMap(rawTracks: rawTracks)
+        let timeSignatureMap = buildTimeSignatureMap(rawTracks: rawTracks, ticksPerQuarterNote: ticksPerQuarterNote)
         var notes: [MIDINoteEvent] = []
 
         for (trackIndex, events) in rawTracks.enumerated() {
@@ -104,10 +111,11 @@ public enum MIDIFileParser {
                     active[key] = stack
                     let startSeconds = tempoMap.seconds(atTick: startTick, ticksPerQuarterNote: ticksPerQuarterNote)
                     let endSeconds = tempoMap.seconds(atTick: event.tick, ticksPerQuarterNote: ticksPerQuarterNote)
+                    let measure = timeSignatureMap.measureNumber(atTick: startTick)
                     notes.append(MIDINoteEvent(pitch: pitch, velocity: velocity,
                                                startSeconds: startSeconds,
                                                durationSeconds: max(0, endSeconds - startSeconds),
-                                               track: trackIndex, channel: channel))
+                                               track: trackIndex, channel: channel, measure: measure))
                 default:
                     continue
                 }
@@ -125,6 +133,7 @@ public enum MIDIFileParser {
         case noteOn(channel: Int, pitch: Int, velocity: Int)
         case noteOff(channel: Int, pitch: Int, velocity: Int)
         case tempo(microsecondsPerQuarterNote: Int)
+        case timeSignature(numerator: Int, denominatorPower: Int)
         case other
     }
 
@@ -164,6 +173,12 @@ public enum MIDIFileParser {
                 if type == 0x51, payload.count == 3 {
                     let micros = (Int(payload[0]) << 16) | (Int(payload[1]) << 8) | Int(payload[2])
                     events.append(RawEvent(tick: tick, kind: .tempo(microsecondsPerQuarterNote: micros)))
+                } else if type == 0x58, payload.count >= 2 {
+                    // Signature rythmique : numérateur tel quel, dénominateur codé comme une
+                    // PUISSANCE de 2 (2 → /4, 3 → /8…) — c'est la convention SMF, pas une valeur
+                    // directement lisible.
+                    events.append(RawEvent(tick: tick, kind: .timeSignature(numerator: Int(payload[0]),
+                                                                            denominatorPower: Int(payload[1]))))
                 } else if type == 0x2F {
                     break // fin de piste
                 }
@@ -254,6 +269,58 @@ public enum MIDIFileParser {
         }
         changes.sort { $0.tick < $1.tick }
         return TempoMap(changes: changes)
+    }
+
+    // MARK: - Numéro de mesure
+
+    /// Convertit un instant en TICKS en numéro de mesure — ce qui permet de retrouver un
+    /// exercice généré dans la partition imprimée, plutôt que de devoir faire confiance à
+    /// l'algorithme sur parole. Une mesure vaut, en ticks, `ticksParNoire × numérateur × 4 /
+    /// dénominateur` — pour 6/8 par exemple, 6 croches valent 3 noires : la moitié d'une mesure
+    /// à 6/4 pour le même nombre de temps notés.
+    private struct TimeSignatureMap {
+        let ticksPerQuarterNote: Int
+        /// (tick de début du segment, ticks par mesure pendant ce segment), triés.
+        let changes: [(tick: Int, ticksPerMeasure: Int)]
+
+        /// 4/4 par défaut si le fichier ne déclare aucune signature avant le premier événement —
+        /// la valeur implicite standard MIDI en l'absence de méta-événement 0x58.
+        private var defaultTicksPerMeasure: Int { ticksPerQuarterNote * 4 }
+
+        func measureNumber(atTick target: Int) -> Int {
+            var measure = 1
+            var lastTick = 0
+            var current = defaultTicksPerMeasure
+
+            for change in changes {
+                let segmentEnd = min(change.tick, target)
+                if segmentEnd > lastTick, current > 0 {
+                    measure += (segmentEnd - lastTick) / current
+                }
+                lastTick = max(lastTick, segmentEnd)
+                if change.tick <= target { current = change.ticksPerMeasure }
+                if change.tick >= target { break }
+            }
+            if target > lastTick, current > 0 {
+                measure += (target - lastTick) / current
+            }
+            return measure
+        }
+    }
+
+    private static func buildTimeSignatureMap(rawTracks: [[RawEvent]], ticksPerQuarterNote: Int) -> TimeSignatureMap {
+        var changes: [(tick: Int, ticksPerMeasure: Int)] = []
+        for events in rawTracks {
+            for event in events {
+                if case .timeSignature(let numerator, let denominatorPower) = event.kind {
+                    let denominator = 1 << denominatorPower
+                    let ticksPerMeasure = ticksPerQuarterNote * numerator * 4 / denominator
+                    changes.append((event.tick, ticksPerMeasure))
+                }
+            }
+        }
+        changes.sort { $0.tick < $1.tick }
+        return TimeSignatureMap(ticksPerQuarterNote: ticksPerQuarterNote, changes: changes)
     }
 }
 

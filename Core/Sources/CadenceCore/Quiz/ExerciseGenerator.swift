@@ -44,7 +44,8 @@ public enum ExerciseGenerator {
                 stacked: false,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: interval.quality)!,
-                explanation: intervalExplanation(interval.quality))
+                explanation: intervalExplanation(interval.quality),
+                sourceMeasure: interval.from.measure)
         }
     }
 
@@ -147,7 +148,8 @@ public enum ExerciseGenerator {
                 notes: centeredForDisplay(cluster.notes.map(\.pitch).sorted()), stacked: true,
                 choices: choices.map(\.displayName),
                 correctIndex: choices.firstIndex(of: chord.quality)!,
-                explanation: chordExplanation(chord.quality))
+                explanation: chordExplanation(chord.quality),
+                sourceMeasure: cluster.notes.first?.measure)
         }
     }
 

@@ -44,17 +44,35 @@ struct QuizView: View {
             Spacer(minLength: 20)
 
             VStack(spacing: 18) {
-                Text(exercise.prompt)
-                    .font(.system(size: 15)).foregroundStyle(C.ink2)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 12)
+                VStack(spacing: 4) {
+                    Text(exercise.prompt)
+                        .font(.system(size: 15)).foregroundStyle(C.ink2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+
+                    // Le repère qui manquait pour VÉRIFIER un exercice contre sa partition,
+                    // plutôt que de devoir faire confiance à l'algorithme sur parole — un
+                    // exercice généré depuis un morceau importé sait toujours de quelle mesure
+                    // il vient (voir `GeneratedExercise.sourceMeasure`) ; une gamme choisie sans
+                    // morceau n'en a pas, et n'affiche donc rien ici.
+                    if let measure = exercise.sourceMeasure {
+                        Text("Mesure \(measure)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(C.inkFaint)
+                    }
+                }
 
                 // Certains exercices (l'armure, par exemple) ne portent aucune note à afficher —
                 // la question se suffit à elle-même. Les autres montrent LA PORTÉE, pas l'oreille :
                 // voir `StaffView`, lire est une compétence à part, distincte de l'audition.
                 if !exercise.notes.isEmpty, let key = store.displayKey {
+                    // HAUTEUR généreuse — 120 était trop juste : une note à deux lignes
+                    // supplémentaires ou plus sous la portée pouvait déborder de la carte visible,
+                    // invisible sans qu'on sache pourquoi. 170 donne de la marge des DEUX côtés
+                    // (la portée reste centrée verticalement dans le cadre), pour des ledger lines
+                    // aussi bien au-dessus qu'en dessous.
                     StaffView(pitches: exercise.notes, key: key, stacked: exercise.stacked,
-                             width: contentWidth, height: 120)
+                             width: contentWidth, height: 170)
                         .padding(.horizontal, 8)
                         .liquidGlass(radius: 20)
                 }
