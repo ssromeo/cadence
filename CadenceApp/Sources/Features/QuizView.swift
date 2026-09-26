@@ -17,20 +17,48 @@ struct QuizView: View {
     @State private var selected: Int?
     @State private var pianoTappedClass: Int?
     @State private var answerMode: AnswerMode = .qcm
+    @State private var showLibrary = false
+
+    /// La bibliothèque de morceaux n'a de sens que pour un morceau IMPORTÉ — pas au milieu d'un
+    /// parcours de gamme (voir `ScalePathView`, qui embarque aussi `QuizView`) : "Mes chansons"
+    /// dans un exercice sur mi majeur choisi sans MIDI n'aurait aucun morceau à proposer. Ce test
+    /// évite d'avoir à faire savoir à `QuizView` s'il est embarqué ou autonome.
+    private var showsLibraryEntryPoint: Bool {
+        if case .scaleFocus = store.source { return false }
+        return true
+    }
 
     var body: some View {
         ZStack {
             AppBackground()
 
-            if store.exercises.isEmpty {
-                emptyState
-            } else if store.isFinished {
-                ScoreView(score: store.score, total: store.exercises.count) {
-                    store.restartSession()
-                    selected = nil
+            Group {
+                if showLibrary {
+                    SongLibraryView(
+                        onSelect: { entry in
+                            store.loadSongFromLibrary(entry)
+                            withAnimation(.easeInOut(duration: 0.2)) { showLibrary = false }
+                        },
+                        onClose: { withAnimation(.easeInOut(duration: 0.2)) { showLibrary = false } }
+                    )
+                    .transition(.opacity)
+                } else if store.exercises.isEmpty {
+                    emptyState
+                        .transition(.opacity)
+                } else if store.isFinished {
+                    ScoreView(score: store.score, total: store.exercises.count) {
+                        store.restartSession()
+                        selected = nil
+                    }
+                    .transition(.opacity)
+                } else if let exercise = store.currentExercise {
+                    content(for: exercise)
+                        .transition(.opacity)
                 }
-            } else if let exercise = store.currentExercise {
-                content(for: exercise)
+            }
+
+            if showsLibraryEntryPoint, !showLibrary {
+                libraryButtonOverlay
             }
         }
         // Réinitialiser aussi `answerMode` serait perdre le choix de l'utilisateur à CHAQUE
@@ -39,6 +67,44 @@ struct QuizView: View {
             selected = nil
             pianoTappedClass = nil
         }
+    }
+
+    /// Un bouton discret en haut à droite, plutôt qu'un onglet de plus — voir `RootTab` : la
+    /// bibliothèque reste une fonctionnalité de l'onglet Exercices, pas une quatrième destination
+    /// dans la barre de navigation, exactement comme le parcours de gamme reste local à son
+    /// propre onglet plutôt que d'en ouvrir un nouveau.
+    /// **Bogue de rendu confirmé sur ce SDK (bêta), noté ici comme les deux autres déjà
+    /// documentés dans ce projet (`LiquidGlass.swift`, `StaffView.swift`).** Positionner ce bouton
+    /// dans un coin via `alignment: .topTrailing` (ou `.trailing`) sur un
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment:)`, ou via un
+    /// `VStack { HStack { Spacer(); bouton }; Spacer() }`, ou même via `.position(x:y:)` — trois
+    /// façons standard de coller une vue à un coin — ne peignent RIEN du tout : pas mal placé,
+    /// entièrement invisible, vérifié par capture d'écran à chaque essai. Seul `alignment: .top`
+    /// (centré horizontalement) peint correctement le contenu ; on le recale ensuite vers le bord
+    /// de droite avec un `.offset(x:)` EXPLICITE, calculé depuis une largeur de bouton FIXE
+    /// plutôt que négociée — cette combinaison précise est la seule des cinq testées qui affiche
+    /// réellement quelque chose.
+    private var libraryButtonOverlay: some View {
+        let buttonWidth: CGFloat = 172
+        let rightMargin: CGFloat = 20
+        let offsetX = UIScreen.main.bounds.width / 2 - rightMargin - buttonWidth / 2
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { showLibrary = true }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "music.note.list")
+                Text("Mes chansons")
+            }
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(C.ink)
+            .frame(width: buttonWidth)
+            .padding(.vertical, 8)
+            .liquidGlass(radius: 18, tint: .white)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .offset(x: offsetX, y: 8)
     }
 
     /// La classe de hauteur réellement demandée par un exercice de nommage — `nil` pour tout
@@ -63,11 +129,30 @@ struct QuizView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 14) {
             Image(systemName: "pianokeys").font(.system(size: 40)).foregroundStyle(C.inkFaint)
             Text("Importe un morceau ou choisis une gamme")
                 .font(.system(size: 17, weight: .medium)).foregroundStyle(C.ink2)
+                .multilineTextAlignment(.center)
+
+            // Un morceau déjà importé une fois n'a plus besoin d'être réimporté depuis Fichiers —
+            // voir `AppStore.libraryEntries` : il reste sur disque, même après avoir quitté l'app.
+            if !store.libraryEntries.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { showLibrary = true }
+                } label: {
+                    Text("Reprendre un morceau (\(store.libraryEntries.count))")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(C.coral, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
         }
+        .padding(.horizontal, 32)
     }
 
     private func content(for exercise: GeneratedExercise) -> some View {

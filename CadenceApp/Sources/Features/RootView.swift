@@ -5,6 +5,7 @@ enum RootTab: Hashable { case home, quiz, scales }
 
 struct RootView: View {
     @State private var store = AppStore()
+    @State private var midi = MIDIConnectionManager()
     @State private var tab: RootTab = .home
 
     var body: some View {
@@ -29,6 +30,7 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: tab)
         .environment(store)
+        .environment(midi)
         // Crochet de VÉRIFICATION VISUELLE uniquement — jamais construit en release. Il importe
         // automatiquement un fichier déposé dans Documents et bascule sur les exercices, pour
         // capturer des captures d'écran déterministes sans avoir à simuler des appuis.

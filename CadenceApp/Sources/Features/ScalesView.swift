@@ -12,14 +12,23 @@ import CadenceCore
 /// en plus simple : deux états, pas de pile à gérer.
 struct ScalesView: View {
     @State private var selectedKey: MusicalKey?
+    @State private var isMinorMode = false
 
     /// Ordre du cercle des quintes plutôt que l'ordre chromatique brut — do, sol, ré, la, mi…
     /// c'est l'ordre dans lequel un musicien apprend réellement les tonalités, des moins
     /// altérées vers les plus altérées.
     private static let circleOfFifths = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]
 
+    /// En mode mineur, ce n'est PAS le même cercle qu'en majeur transposé au hasard — chaque
+    /// tonique mineure est le RELATIF de la tonique majeure au même index (une tierce mineure en
+    /// dessous, `+9` modulo 12), ce qui préserve exactement le même ordre "des moins altérées aux
+    /// plus altérées" : la mineur (0 altération) d'abord, comme do majeur en mode majeur, jusqu'à
+    /// ré mineur en dernier, comme fa majeur.
     private var keys: [MusicalKey] {
-        Self.circleOfFifths.map { MusicalKey(tonicPitchClass: $0, isMajor: true) }
+        Self.circleOfFifths.map { tonic in
+            let effectiveTonic = isMinorMode ? (tonic + 9) % 12 : tonic
+            return MusicalKey(tonicPitchClass: effectiveTonic, isMajor: !isMinorMode)
+        }
     }
 
     var body: some View {
@@ -75,12 +84,45 @@ struct ScalesView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Sans morceau").font(.system(size: 15)).foregroundStyle(C.ink2)
-            Text("Choisis une gamme")
-                .font(.system(size: 28, weight: .bold, design: .rounded)).foregroundStyle(C.ink)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Sans morceau").font(.system(size: 15)).foregroundStyle(C.ink2)
+                Text("Choisis une gamme")
+                    .font(.system(size: 28, weight: .bold, design: .rounded)).foregroundStyle(C.ink)
+            }
+            modeToggle
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Majeur/mineur, pas un simple bouton "mineur" en plus des douze cartes majeures — les
+    /// gammes mineures ont leur PROPRE cercle des quintes (voir `keys`), donc leur propre grille
+    /// complète de douze tonalités plutôt qu'un mode caché derrière une case à cocher.
+    ///
+    /// Deux `Button` explicitement LARGEUR FIXE côte à côte, jamais `.frame(maxWidth: .infinity)`
+    /// sur des boutons voisins — un bogue connu du SDK rend alors le `Text` de l'un des deux
+    /// invisible. Voir `QuizView.modeToggle` pour le même détour, déjà éprouvé ailleurs dans l'app.
+    private var modeToggle: some View {
+        let width = (UIScreen.main.bounds.width - 48 - 6) / 2
+        return HStack(spacing: 6) {
+            modeButton("Majeur", isMinor: false, width: width)
+            modeButton("Mineur", isMinor: true, width: width)
+        }
+    }
+
+    private func modeButton(_ title: String, isMinor: Bool, width: CGFloat) -> some View {
+        let selected = isMinorMode == isMinor
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { isMinorMode = isMinor }
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(selected ? Color.white : C.ink2)
+                .frame(width: width, height: 36)
+                .background(selected ? C.coral : Color.white.opacity(0.5))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Grille de tonalités

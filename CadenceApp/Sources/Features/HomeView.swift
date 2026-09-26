@@ -4,6 +4,7 @@ import CadenceCore
 
 struct HomeView: View {
     @Environment(AppStore.self) private var store
+    @Environment(MIDIConnectionManager.self) private var midi
     @State private var showImporter = false
     @State private var isDropTargeted = false
     @Binding var selectedTab: RootTab
@@ -95,12 +96,31 @@ struct HomeView: View {
                 Text("cadence").font(.system(size: 22, weight: .heavy, design: .rounded)).foregroundStyle(C.ink)
             }
             Spacer()
+            if midi.isConnected {
+                midiBadge
+            }
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(C.ink)
                 .frame(width: 40, height: 40)
                 .liquidGlass(radius: 20)
         }
+    }
+
+    /// N'apparaît QUE quand un clavier est réellement branché — voir `MIDIConnectionManager`. Pas
+    /// de badge "déconnecté" en permanence : ça ajouterait un état neutre à lire en continu pour
+    /// une information qui n'intéresse l'utilisateur que le jour où elle change.
+    private var midiBadge: some View {
+        HStack(spacing: 6) {
+            Circle().fill(C.good).frame(width: 7, height: 7)
+            Text(midi.connectedDeviceName ?? "Clavier connecté")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(C.ink)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .liquidGlass(radius: 16, tint: .white)
     }
 
     // MARK: – Statut

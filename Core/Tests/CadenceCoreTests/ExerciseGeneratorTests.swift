@@ -301,6 +301,34 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertEqual(signature2.choices[signature2.correctIndex], "2")
     }
 
+    /// Régression : do majeur ET la mineur (son relatif) comptent tous deux zéro altération.
+    /// L'explication pour "zéro altération" affirmait autrefois que do majeur était "la SEULE
+    /// tonalité MAJEURE" sans altération — vrai pour do majeur, mais absurde et trompeur affiché
+    /// sur un exercice pris sur la mineur elle-même (une tonalité mineure, pas majeure).
+    func testZeroAccidentalExplanationDoesNotClaimTheKeyIsMajorWhenItIsMinor() {
+        var rng = SeededGenerator(seed: 9)
+        let aMinor = MusicalKey(tonicPitchClass: 9, isMajor: false) // la mineur : 0 altération
+        let signature = ExerciseGenerator.fromScale(key: aMinor, rng: &rng)
+            .first { $0.kind == .keySignature }!
+        XCTAssertEqual(signature.choices[signature.correctIndex], "0")
+        XCTAssertFalse(signature.explanation.contains("tonalité majeure"),
+                       "l'explication ne doit pas qualifier une gamme mineure de tonalité majeure")
+    }
+
+    /// Les gammes mineures ne sont pas un cas particulier bricolé à part : toutes les familles
+    /// d'exercices déjà écrites pour le majeur (degrés, notes, intervalles, accords, armure)
+    /// doivent fonctionner identiquement pour une tonalité mineure, sans aucun code dédié.
+    func testMinorScaleProducesTheSameExerciseFamiliesAsMajor() {
+        var rng = SeededGenerator(seed: 10)
+        let dMinor = MusicalKey(tonicPitchClass: 2, isMajor: false)
+
+        for focus in ExerciseGenerator.ScaleFocus.allCases {
+            let exercises = ExerciseGenerator.scaleExercises(key: dMinor, focus: focus, rng: &rng)
+            XCTAssertFalse(exercises.isEmpty, "\(focus) doit produire des exercices pour une gamme mineure aussi")
+            XCTAssertTrue(exercises.allSatisfy { $0.displayKey == dMinor })
+        }
+    }
+
     // MARK: - Explications
 
     func testEveryGeneratedExerciseCarriesAnExplanation() {

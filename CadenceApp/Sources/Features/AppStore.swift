@@ -45,6 +45,13 @@ final class AppStore {
     private(set) var importState: ImportState = .empty
     private(set) var parsedMIDI: ParsedMIDI?
 
+    /// La bibliothèque des morceaux déjà importés, persistée sur disque — voir
+    /// `SongLibraryStore`. Rechargée à chaque changement (import, renommage, suppression) plutôt
+    /// que lue à la demande : les vues qui l'affichent (voir `SongLibraryView`) doivent réagir à
+    /// l'observation `@Observable` normale de l'app, pas interroger le disque elles-mêmes.
+    private let songLibrary = SongLibraryStore(directory: SongLibraryStore.defaultDirectory())
+    private(set) var libraryEntries: [SongLibraryEntry] = []
+
     private(set) var exercises: [GeneratedExercise] = []
     private(set) var source: ExerciseSource = .none
     var currentExerciseIndex = 0
@@ -60,6 +67,10 @@ final class AppStore {
     /// encore en tâche de fond, le premier ne doit plus pouvoir écraser l'état avec un résultat
     /// obsolète une fois qu'il termine enfin.
     private var importGeneration = 0
+
+    init() {
+        libraryEntries = songLibrary.loadEntries()
+    }
 
     var currentExercise: GeneratedExercise? {
         exercises.indices.contains(currentExerciseIndex) ? exercises[currentExerciseIndex] : nil
@@ -95,28 +106,55 @@ final class AppStore {
         importState = .analyzing(progress: 0.08)
 
         Task.detached(priority: .userInitiated) { [weak self] in
+            await self?.reportProgress(0.4, generation: generation)
             do {
-                let parsed = try MIDIFileParser.parse(data: data)
-                await self?.reportProgress(0.55, generation: generation)
-
-                guard !parsed.notes.isEmpty else {
-                    await self?.finishImport(.failed("Ce fichier ne contient aucune note lisible."), generation: generation)
-                    return
-                }
-
-                let key = KeyDetector.detectKey(from: parsed.notes)
+                let result = try Self.analyze(data: data)
                 await self?.reportProgress(0.8, generation: generation)
-
-                var localRNG = SystemRandomNumberGenerator()
-                let generated = ExerciseGenerator.fromImportedMusic(notes: parsed.notes, rng: &localRNG)
-
-                await self?.applyImportResult(parsed: parsed, key: key, exercises: generated,
-                                              fileName: fileName, generation: generation)
+                await self?.applyImportResult(parsed: result.parsed, key: result.key, exercises: result.exercises,
+                                              fileName: fileName, midiData: data, generation: generation)
+            } catch AnalysisError.noNotes {
+                await self?.finishImport(.failed("Ce fichier ne contient aucune note lisible."), generation: generation)
             } catch {
                 await self?.finishImport(.failed("Ce fichier n'a pas pu être lu comme un MIDI standard."),
                                          generation: generation)
             }
         }
+    }
+
+    /// Recharge un morceau déjà dans la bibliothèque (voir `SongLibraryView`) — le MIDI d'origine
+    /// est reparsé et régénéré exactement comme un import frais, mais SANS créer une seconde
+    /// entrée dans la bibliothèque : c'est le même morceau qu'on rouvre, pas un nouveau.
+    func loadSongFromLibrary(_ entry: SongLibraryEntry) {
+        guard let data = songLibrary.midiData(for: entry.id) else { return }
+        importGeneration += 1
+        let generation = importGeneration
+        importState = .analyzing(progress: 0.2)
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let result = try? Self.analyze(data: data) else {
+                await self?.finishImport(.failed("Ce morceau n'a pas pu être relu depuis la bibliothèque."),
+                                         generation: generation)
+                return
+            }
+            await self?.finishLoadingLibrarySong(parsed: result.parsed, exercises: result.exercises,
+                                                 entry: entry, generation: generation)
+        }
+    }
+
+    private enum AnalysisError: Error { case noNotes }
+
+    /// Le travail de fond commun à un import frais et à un rechargement depuis la bibliothèque :
+    /// parser, détecter la tonalité, générer les exercices. Ce que chaque appelant fait ENSUITE du
+    /// résultat diffère (persister ou non une nouvelle entrée), donc seule cette partie commune,
+    /// coûteuse, est factorisée — et volontairement `static`/hors acteur : elle ne touche à aucun
+    /// état de l'app, seulement `Task.detached` peut donc l'exécuter hors du fil principal.
+    nonisolated private static func analyze(data: Data) throws -> (parsed: ParsedMIDI, key: MusicalKey, exercises: [GeneratedExercise]) {
+        let parsed = try MIDIFileParser.parse(data: data)
+        guard !parsed.notes.isEmpty else { throw AnalysisError.noNotes }
+        let key = KeyDetector.detectKey(from: parsed.notes)
+        var localRNG = SystemRandomNumberGenerator()
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: parsed.notes, rng: &localRNG)
+        return (parsed, key, exercises)
     }
 
     private func reportProgress(_ value: Double, generation: Int) {
@@ -130,11 +168,44 @@ final class AppStore {
     }
 
     private func applyImportResult(parsed: ParsedMIDI, key: MusicalKey, exercises: [GeneratedExercise],
-                                   fileName: String, generation: Int) {
+                                   fileName: String, midiData: Data, generation: Int) {
         guard generation == importGeneration else { return } // un import plus récent a pris le relais
         parsedMIDI = parsed
-        importState = .ready(fileName: fileName, noteCount: parsed.notes.count, key: key)
-        beginSession(exercises: exercises, source: .importedMusic(fileName: fileName))
+        let entry = songLibrary.addSong(midiData: midiData, originalFileName: fileName,
+                                        noteCount: parsed.notes.count, key: key)
+        libraryEntries = songLibrary.loadEntries()
+        importState = .ready(fileName: entry.customName, noteCount: parsed.notes.count, key: key)
+        beginSession(exercises: exercises, source: .importedMusic(fileName: entry.customName))
+    }
+
+    private func finishLoadingLibrarySong(parsed: ParsedMIDI, exercises: [GeneratedExercise],
+                                          entry: SongLibraryEntry, generation: Int) {
+        guard generation == importGeneration else { return }
+        parsedMIDI = parsed
+        importState = .ready(fileName: entry.customName, noteCount: parsed.notes.count, key: entry.key)
+        beginSession(exercises: exercises, source: .importedMusic(fileName: entry.customName))
+    }
+
+    /// Renommer/supprimer touchent la bibliothèque PUIS rafraîchissent `libraryEntries` — jamais
+    /// l'inverse — pour que la liste observée par `SongLibraryView` reflète toujours exactement ce
+    /// qui est sur disque, sans jamais pouvoir en diverger.
+    func renameSong(id: UUID, to newName: String) {
+        songLibrary.rename(id: id, to: newName)
+        libraryEntries = songLibrary.loadEntries()
+        // Le morceau qu'on est peut-être en train de réviser porte encore l'ANCIEN nom dans
+        // `importState`/`source` tant qu'on ne les met pas à jour ici — un renommage qui
+        // n'apparaîtrait qu'après avoir quitté puis rouvert l'exercice serait déroutant.
+        if case .ready(_, let noteCount, let key) = importState,
+           case .importedMusic = source,
+           let renamed = libraryEntries.first(where: { $0.id == id }) {
+            importState = .ready(fileName: renamed.customName, noteCount: noteCount, key: key)
+            source = .importedMusic(fileName: renamed.customName)
+        }
+    }
+
+    func deleteSong(id: UUID) {
+        songLibrary.delete(id: id)
+        libraryEntries = songLibrary.loadEntries()
     }
 
     // MARK: - Depuis une gamme choisie, sans morceau

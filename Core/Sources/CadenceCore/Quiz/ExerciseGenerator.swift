@@ -435,8 +435,11 @@ public enum ExerciseGenerator {
         var choices = (Array(chosen) + [correct]).map(String.init)
         choices.shuffle(using: &rng)
         let word = key.prefersFlats ? "bémol" : "dièse"
+        // Do majeur ET la mineur (son relatif) partagent tous deux zéro altération — le dire
+        // au singulier "la seule tonalité majeure sans altération : do majeur" serait faux et
+        // trompeur pour un exercice pris sur la mineur elle-même.
         let explanation = correct == 0
-            ? "\(key.name().capitalized) est la seule tonalité majeure sans aucune altération : do majeur."
+            ? "\(key.name().capitalized) ne compte aucune altération : ni dièse, ni bémol — comme do majeur et la mineur, son relatif."
             : "Sur le cercle des quintes, \(key.name()) est la \(correct)ᵉ tonalité côté \(word)s en partant de do majeur — elle en compte donc \(correct)."
         return GeneratedExercise(
             kind: .keySignature,
