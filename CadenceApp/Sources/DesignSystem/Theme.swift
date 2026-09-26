@@ -15,6 +15,11 @@ enum C {
     static let coral      = Color(hex: 0xF0785C)
     static let lilac      = Color(hex: 0xB98CE0)
     static let gold       = Color(hex: 0xC9A227)
+    /// Le bleu système d'iOS — utilisé UNIQUEMENT pour l'état actif de la barre de navigation,
+    /// sur le modèle demandé (icône + libellé toujours visibles, l'onglet actif se distingue
+    /// par la couleur, pas par un changement de mise en page). Le reste de l'app garde sa
+    /// palette chaude ; ce bleu n'apparaît que là.
+    static let navActive  = Color(hex: 0x0A84FF)
 
     static let good       = Color(hex: 0x4E9A6B)
     static let goodSoft   = Color(hex: 0x4E9A6B).opacity(0.14)
