@@ -7,6 +7,11 @@ struct HomeView: View {
     @Environment(MIDIConnectionManager.self) private var midi
     @State private var showImporter = false
     @State private var isDropTargeted = false
+    /// Bascule VERS le parcours du morceau prêt — locale à cet onglet, jamais dans `RootTab` :
+    /// même convention que `selectedKey` dans `ScalesView`, pour la même raison (voir sa
+    /// documentation) : choisir un morceau puis explorer son parcours reste un aller-retour à
+    /// l'intérieur d'Accueil, pas une navigation entre onglets.
+    @State private var showingPath = false
     @Binding var selectedTab: RootTab
 
     private static let midiTypes: [UTType] = {
@@ -16,8 +21,47 @@ struct HomeView: View {
 
     var body: some View {
         ZStack {
+            // Un seul fond, ICI — pas un par branche (voir `ScalesView`, même convention) :
+            // `Group { if/else }` remplace tout son contenu à chaque bascule, et un fond posé
+            // dans chaque branche laisserait l'écran blanc le temps où aucune des deux ne porte
+            // plus le sien.
             AppBackground()
 
+            Group {
+                if showingPath {
+                    MusicPathView {
+                        withAnimation(.easeInOut(duration: 0.2)) { showingPath = false }
+                    }
+                    .transition(.opacity)
+                } else {
+                    homeContent
+                        .transition(.opacity)
+                }
+            }
+        }
+        // Dès qu'une analyse aboutit, on MONTRE le parcours plutôt que d'attendre un second tap
+        // sur "Exercices" — c'est la demande d'origine : "quand j'analyse un midi, ça me DIT un
+        // parcours". `importState` change de valeur (même juste de morceau, un `.ready` succède
+        // à un autre) à chaque import ou rechargement réussi, y compris depuis "Mes chansons" —
+        // reste alors juste à réagir, jamais à redéclencher l'analyse elle-même depuis ici.
+        .onChange(of: store.importState) { _, newState in
+            guard case .ready = newState, store.musicPath != nil else { return }
+            withAnimation(.easeInOut(duration: 0.25)) { showingPath = true }
+        }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: Self.midiTypes) { result in
+            guard case .success(let url) = result else { return }
+            importFile(at: url)
+        }
+        // DÉPÔT DIRECT depuis le Finder du Mac sur la fenêtre du simulateur — un chemin
+        // INDÉPENDANT du sélecteur de documents et de l'app Fichiers, tous deux sujets au même
+        // bogue de glisser-déposer du simulateur ("Simulator device failed to open…"). Un
+        // `.onDrop` posé sur la vue elle-même est géré par UIKit directement, sans passer par
+        // cette UI système capricieuse.
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
+    }
+
+    private var homeContent: some View {
+        ZStack {
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 40)
@@ -51,16 +95,6 @@ struct HomeView: View {
                     .allowsHitTesting(false)
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: Self.midiTypes) { result in
-            guard case .success(let url) = result else { return }
-            importFile(at: url)
-        }
-        // DÉPÔT DIRECT depuis le Finder du Mac sur la fenêtre du simulateur — un chemin
-        // INDÉPENDANT du sélecteur de documents et de l'app Fichiers, tous deux sujets au même
-        // bogue de glisser-déposer du simulateur ("Simulator device failed to open…"). Un
-        // `.onDrop` posé sur la vue elle-même est géré par UIKit directement, sans passer par
-        // cette UI système capricieuse.
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
     }
 
     private func importFile(at url: URL) {
@@ -184,13 +218,20 @@ struct HomeView: View {
             .buttonStyle(.plain)
 
             Button {
-                guard case .ready = store.importState, !store.exercises.isEmpty else { return }
-                selectedTab = .quiz
+                // Un morceau prêt, avec un parcours à proposer : c'est LUI qu'on ouvre, pas le
+                // quiz mélangé — voir `MusicPathView`. Sinon (une session de gamme déjà en cours,
+                // par exemple, sans aucun morceau importé), on retombe sur l'ancien chemin direct
+                // vers l'onglet Exercices, pour ne rien casser de ce qui marchait déjà.
+                if store.musicPath != nil, case .ready = store.importState {
+                    withAnimation(.easeInOut(duration: 0.2)) { showingPath = true }
+                } else if !store.exercises.isEmpty {
+                    selectedTab = .quiz
+                }
             } label: {
                 GlassIconLabel(systemImage: "sparkles.rectangle.stack.fill", label: "Exercices")
             }
             .buttonStyle(.plain)
-            .opacity(store.exercises.isEmpty ? 0.4 : 1)
+            .opacity((store.musicPath != nil || !store.exercises.isEmpty) ? 1 : 0.4)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: store.importState)
     }

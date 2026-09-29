@@ -104,7 +104,9 @@ final class ExerciseGeneratorTests: XCTestCase {
     /// instant de départ mélangeait les deux mains et produisait des paires qui n'existent pas
     /// musicalement.
     func testIntervalsNeverMixTwoDifferentVoices() {
-        let melody = [note(72, at: 0), note(74, at: 1), note(76, at: 2)] // do5-ré5-mi5, piste 0
+        // Durée étendue à l'écart complet (1s) — des notes réellement ENCHAÎNÉES, sans silence
+        // entre elles, la seule condition que `isMusicallyContinuous` laisse désormais passer.
+        let melody = [note(72, at: 0, duration: 1), note(74, at: 1, duration: 1), note(76, at: 2)] // do5-ré5-mi5, piste 0
         let bass = [MIDINoteEvent(pitch: 36, velocity: 80, startSeconds: 0.5, durationSeconds: 0.4, track: 1, channel: 0),
                    MIDINoteEvent(pitch: 38, velocity: 80, startSeconds: 1.5, durationSeconds: 0.4, track: 1, channel: 0)]
         var rng = SeededGenerator(seed: 40)
@@ -156,6 +158,67 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertEqual(interval.sourceMeasure, 13)
         XCTAssertEqual(interval.sourceMeasureEnd, 14)
         XCTAssertEqual(interval.sourceMeasureLabel, "Mesure 13 et 14")
+    }
+
+    /// Régression exacte du bogue signalé sur un fichier réel ("Comptine d'un autre été", capture
+    /// Rousseau MIDI) : quand main droite et main gauche sont mélangées sur la même piste MIDI
+    /// avec un fort recouvrement, `fromImportedMusic` ne doit produire AUCUN exercice
+    /// d'intervalle (voir `HarmonicAnalyzer.testMelodicLineIsEmptyWhenASingleVoiceMixesTwoHands...`)
+    /// — mais les exercices d'accord, qui ne dépendent pas de cette séparation par voix, doivent
+    /// rester disponibles : le morceau reste utilisable, seule la famille d'exercices qu'on ne
+    /// peut pas garantir fiable disparaît.
+    func testImportedMusicWithMixedHandsOnOneTrackProducesNoIntervalButKeepsChords() {
+        var notes: [MIDINoteEvent] = []
+        for i in 0..<20 {
+            let start = Double(i) * 0.35
+            notes.append(note(64 + (i % 5), at: start, duration: 0.3))
+            if i % 4 == 0 {
+                // Un accord de main gauche, plaqué et tenu longtemps sous la ligne rapide.
+                notes.append(contentsOf: [
+                    MIDINoteEvent(pitch: 40, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                    MIDINoteEvent(pitch: 47, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                    MIDINoteEvent(pitch: 52, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                ])
+            }
+        }
+        var rng = SeededGenerator(seed: 70)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertFalse(exercises.contains { $0.kind == .interval },
+                       "deux mains mélangées sur une seule piste ne doivent produire aucun exercice d'intervalle")
+        XCTAssertTrue(exercises.contains { $0.kind == .chordQuality },
+                      "les accords plaqués (main gauche) doivent rester reconnus malgré l'absence de mélodie fiable")
+    }
+
+    /// Régression exacte du second bogue trouvé sur "Drowning Love [With Key Change]" (seconde
+    /// répétition du couplet) : une mesure jamais repliée (fin d'un couplet répété, unique) suivie
+    /// d'une mesure repliée sur un numéro bien plus PETIT (début du couplet suivant, qui recommence
+    /// à reprendre le tout premier) ne doit JAMAIS afficher une étiquette à numéros inversés comme
+    /// "Mesure 31 et 16" — un seul numéro (celui de départ) doit rester.
+    func testIntervalCrossingIntoAnEarlierFoldedMeasureLabelsOnlyTheStart() {
+        func noteAt(_ pitch: Int, start: Double, measure: Int) -> MIDINoteEvent {
+            MIDINoteEvent(pitch: pitch, velocity: 80, startSeconds: start, durationSeconds: 0.13,
+                         track: 0, channel: 0, measure: measure)
+        }
+        // La mesure 31, jamais vue ailleurs (jamais repliée) ; la mesure 32 reprend NOTE POUR NOTE
+        // la mesure 16 — comme le début d'un second couplet qui recommence sur le premier — ET sa
+        // mesure voisine (33) confirme elle aussi un bloc de deux mesures, pour que le repli soit
+        // un vrai repli confirmé, pas une coïncidence isolée qu'on aurait déjà dû rejeter ailleurs.
+        let notes = [
+            noteAt(65, start: 0.0, measure: 16), noteAt(69, start: 0.13, measure: 17), // bloc "premier couplet"
+            noteAt(72, start: 10.0, measure: 31),                                        // unique, jamais repliée
+            noteAt(65, start: 10.13, measure: 32), noteAt(69, start: 10.26, measure: 33), // = bloc ci-dessus
+        ]
+        var rng = SeededGenerator(seed: 65)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+        guard let interval = exercises.first(where: { $0.kind == .interval && $0.sourceMeasure == 31 }) else {
+            return XCTFail("attendu un exercice d'intervalle partant de la mesure 31")
+        }
+        XCTAssertNil(interval.sourceMeasureEnd,
+                     "jamais une seconde mesure numériquement antérieure à la première")
+        XCTAssertEqual(interval.sourceMeasureLabel, "Mesure 31")
     }
 
     /// Un intervalle contenu dans une seule mesure imprimée ne doit PAS afficher une seconde
@@ -212,7 +275,8 @@ final class ExerciseGeneratorTests: XCTestCase {
     /// exemple) ne doit jamais produire un exercice dont les notes affichées débordent au point de
     /// chevaucher le reste de l'écran — voir `centeredForDisplay`.
     func testExtremeRegisterIntervalIsBroughtIntoAComfortableRange() {
-        let notes = [note(96, at: 0), note(103, at: 1)] // très aigu : sol6 à sol7
+        // Durée étendue à l'écart complet — deux notes réellement enchaînées, sans silence noté.
+        let notes = [note(96, at: 0, duration: 1), note(103, at: 1)] // très aigu : sol6 à sol7
         var rng = SeededGenerator(seed: 20)
 
         let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
@@ -238,6 +302,43 @@ final class ExerciseGeneratorTests: XCTestCase {
         XCTAssertEqual(exercise.notes[2] - exercise.notes[1], 3)
     }
 
+    /// Régression exacte du bogue signalé sur un vrai fichier ("Drowning Love [With Key
+    /// Change]", mesure 9) : deux groupes de notes séparés par un soupir écrit dans la partition
+    /// (voir la capture PDF fournie avec le rapport) ne doivent PAS produire un exercice
+    /// d'intervalle entre la dernière note du premier groupe et la première du second — même si
+    /// l'écart entre elles reste bien en dessous de l'ancien plafond absolu de 2 secondes.
+    func testRestBetweenTwoPhrasesProducesNoIntervalAcrossIt() {
+        // Reproduit exactement le rapport de silence mesuré sur le fichier réel : une note qui
+        // dure 0,135 s, puis un silence de 0,137 s (environ UNE note de plus) avant la suivante —
+        // un vrai soupir noté, pas une micro-désynchronisation d'enregistrement.
+        let notes = [
+            note(71, at: 13.773, duration: 0.135),
+            note(71, at: 14.045, duration: 0.135), // 0.137s de silence après la fin de la précédente
+        ]
+        var rng = SeededGenerator(seed: 90)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertFalse(exercises.contains { $0.kind == .interval },
+                       "un silence noté entre deux groupes de notes ne doit jamais produire un exercice d'intervalle")
+    }
+
+    /// Deux notes séparées d'un tout petit écart, largement sous le silence d'un vrai soupir,
+    /// doivent au contraire rester acceptées — un peu de désynchronisation naturelle
+    /// d'enregistrement ne doit jamais être confondue avec un vrai temps de silence noté.
+    func testTinyRecordingJitterBetweenNotesStillProducesAnInterval() {
+        let notes = [
+            note(71, at: 13.773, duration: 0.135),
+            note(76, at: 13.773 + 0.135 + 0.01, duration: 0.135), // 10 ms de jitter, pas un soupir
+        ]
+        var rng = SeededGenerator(seed: 91)
+
+        let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertTrue(exercises.contains { $0.kind == .interval },
+                      "10 ms de désynchronisation ne sont pas un silence noté : l'intervalle doit rester")
+    }
+
     func testUnrecognizableClusterProducesNoChordExercise() {
         // do-do dièse-ré : cluster chromatique, aucun accord tonal reconnu — ne doit PAS
         // produire un exercice avec une "bonne réponse" qui n'existe pas.
@@ -246,6 +347,89 @@ final class ExerciseGeneratorTests: XCTestCase {
 
         let exercises = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
         XCTAssertFalse(exercises.contains { $0.kind == .chordQuality })
+    }
+
+    // MARK: - Le parcours d'un morceau importé ("que travailler dans CE fichier ?")
+
+    func testPathRanksThemesByHowMuchTheyAreRepresentedInTheFile() {
+        // Un accord de do majeur, plaqué UNE fois : peu de matière pour "Accords". Une mélodie de
+        // huit notes qui bouge tout le temps : beaucoup plus de matière pour "Intervalles".
+        let chord = [note(60, at: 0), note(64, at: 0), note(67, at: 0)]
+        let melody = (0..<8).map { i in note(60 + i, at: 1 + Double(i) * 0.4) }
+        var rng = SeededGenerator(seed: 80)
+
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: chord + melody, rng: &rng)
+
+        XCTAssertTrue(path.themes.contains { $0.focus == .intervals })
+        XCTAssertTrue(path.themes.contains { $0.focus == .chords })
+        let intervalsIndex = path.themes.firstIndex { $0.focus == .intervals }!
+        let chordsIndex = path.themes.firstIndex { $0.focus == .chords }!
+        XCTAssertLessThan(intervalsIndex, chordsIndex,
+                          "la mélodie, bien plus représentée dans ce fichier que l'unique accord, doit passer en premier")
+    }
+
+    func testPathAlwaysPutsSpeedLast() {
+        let notes = (0..<8).map { i in note(60 + i, at: Double(i) * 0.4) }
+        var rng = SeededGenerator(seed: 81)
+
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertEqual(path.themes.last?.focus, .speed, "rapidité, un simple remix des autres thèmes, ne doit jamais passer devant eux")
+    }
+
+    func testPathExcludesThemesWithNoContentRatherThanShowingThemEmpty() {
+        // Une seule note : aucun intervalle possible (il en faut deux), aucun accord (il faut
+        // plusieurs notes simultanées).
+        let notes = [note(60, at: 0)]
+        var rng = SeededGenerator(seed: 82)
+
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertFalse(path.themes.contains { $0.focus == .intervals })
+        XCTAssertFalse(path.themes.contains { $0.focus == .chords })
+        XCTAssertTrue(path.themes.allSatisfy { !$0.exercises.isEmpty },
+                      "un thème sans exercice ne doit jamais apparaître dans le parcours")
+    }
+
+    /// Régression exacte du bogue "Comptine d'un autre été" (voir `HarmonicAnalyzerTests`) : sur
+    /// un fichier où deux mains sont mélangées sur une seule voix MIDI, le parcours ne doit
+    /// proposer AUCUN thème "Intervalles" — mais "Accords" doit rester disponible.
+    func testPathExcludesIntervalsButKeepsChordsWhenHandsAreMixedOnOneTrack() {
+        var notes: [MIDINoteEvent] = []
+        for i in 0..<20 {
+            let start = Double(i) * 0.35
+            notes.append(note(64 + (i % 5), at: start, duration: 0.3))
+            if i % 4 == 0 {
+                notes.append(contentsOf: [
+                    MIDINoteEvent(pitch: 40, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                    MIDINoteEvent(pitch: 47, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                    MIDINoteEvent(pitch: 52, velocity: 80, startSeconds: start, durationSeconds: 1.3, track: 0, channel: 0),
+                ])
+            }
+        }
+        var rng = SeededGenerator(seed: 83)
+
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertFalse(path.themes.contains { $0.focus == .intervals })
+        XCTAssertTrue(path.themes.contains { $0.focus == .chords })
+    }
+
+    func testPathThemesUseTheSongsOwnDetectedKeyForDegreesNotesAndKeySignature() {
+        // La majeur (3 dièses) : la, si, do#, ré, mi, fa#, sol# — jouées longuement pour que
+        // `KeyDetector` la retrouve sans ambiguïté.
+        let pitches = [69, 71, 73, 74, 76, 78, 80]
+        let notes = pitches.enumerated().map { i, p in note(p, at: Double(i) * 0.8, duration: 0.75) }
+        var rng = SeededGenerator(seed: 84)
+
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: notes, rng: &rng)
+
+        XCTAssertEqual(path.key.accidentalCount, 3)
+        XCTAssertFalse(path.key.prefersFlats)
+        for theme in path.themes where [.degrees, .noteNames, .keySignature].contains(theme.focus) {
+            XCTAssertTrue(theme.exercises.allSatisfy { $0.displayKey == path.key },
+                          "\(theme.focus) doit utiliser la tonalité détectée DE CE MORCEAU, pas une autre")
+        }
     }
 
     // MARK: - Depuis une gamme, sans morceau
@@ -353,7 +537,8 @@ final class ExerciseGeneratorTests: XCTestCase {
     }
 
     func testIntervalExplanationNamesTheSemitoneCount() {
-        let notes = [note(60, at: 0), note(64, at: 1)] // do → mi : tierce majeure, 4 demi-tons
+        // Durée étendue à l'écart complet — deux notes réellement enchaînées, sans silence noté.
+        let notes = [note(60, at: 0, duration: 1), note(64, at: 1)] // do → mi : tierce majeure, 4 demi-tons
         var rng = SeededGenerator(seed: 31)
 
         let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)
@@ -368,7 +553,8 @@ final class ExerciseGeneratorTests: XCTestCase {
     /// n'était pas un multiple de 12, décalant silencieusement la classe de hauteur affichée :
     /// l'intervalle montré ne correspondait plus à aucune paire de notes du fichier d'origine.
     func testIntervalDisplayPitchesKeepTheSamePitchClassesAsTheRealNotes() {
-        let notes = [note(62, at: 0), note(66, at: 1)] // ré4 → fa♯4 : tierce majeure réelle
+        // Durée étendue à l'écart complet — deux notes réellement enchaînées, sans silence noté.
+        let notes = [note(62, at: 0, duration: 1), note(66, at: 1)] // ré4 → fa♯4 : tierce majeure réelle
         var rng = SeededGenerator(seed: 32)
 
         let exercise = ExerciseGenerator.fromImportedMusic(notes: notes, rng: &rng)

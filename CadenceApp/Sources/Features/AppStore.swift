@@ -52,6 +52,23 @@ final class AppStore {
     private let songLibrary = SongLibraryStore(directory: SongLibraryStore.defaultDirectory())
     private(set) var libraryEntries: [SongLibraryEntry] = []
 
+    /// Le parcours thématique du morceau actuellement chargé — "qu'est-ce qu'il y a à travailler
+    /// dans CE fichier ?" plutôt qu'un simple tas d'exercices mélangés. `nil` tant qu'aucun
+    /// morceau n'est prêt ; voir `MusicPathView`.
+    /// L'identifiant du morceau de bibliothèque actuellement chargé — `nil` tant qu'aucun import
+    /// n'a réussi, ou dès qu'on bascule sur une gamme choisie. Sert à `renameSong`/`deleteSong` à
+    /// vérifier qu'ils touchent bien LE morceau actif avant de modifier la session en cours,
+    /// plutôt que de supposer "une session importée est active donc c'est forcément celle-là" —
+    /// vrai neuf fois sur dix, faux le jour où on renomme ou supprime un AUTRE morceau que celui
+    /// en cours de révision.
+    private(set) var activeSongID: UUID?
+    private(set) var musicPath: ExerciseGenerator.ImportedMusicPath?
+    /// Le thème du parcours actuellement en cours de révision, `nil` pour une session "tout
+    /// mélangé" (l'ancien comportement, toujours utilisé pour recommencer depuis l'accueil) ou
+    /// pour une gamme choisie. Sert uniquement à savoir QUOI régénérer dans `restartSession` —
+    /// sans lui, recommencer un thème précis rejouerait tout le morceau plutôt que ce seul thème.
+    private(set) var activeImportedTheme: ExerciseGenerator.ScaleFocus?
+
     private(set) var exercises: [GeneratedExercise] = []
     private(set) var source: ExerciseSource = .none
     var currentExerciseIndex = 0
@@ -111,7 +128,7 @@ final class AppStore {
                 let result = try Self.analyze(data: data)
                 await self?.reportProgress(0.8, generation: generation)
                 await self?.applyImportResult(parsed: result.parsed, key: result.key, exercises: result.exercises,
-                                              fileName: fileName, midiData: data, generation: generation)
+                                              path: result.path, fileName: fileName, midiData: data, generation: generation)
             } catch AnalysisError.noNotes {
                 await self?.finishImport(.failed("Ce fichier ne contient aucune note lisible."), generation: generation)
             } catch {
@@ -137,7 +154,7 @@ final class AppStore {
                 return
             }
             await self?.finishLoadingLibrarySong(parsed: result.parsed, exercises: result.exercises,
-                                                 entry: entry, generation: generation)
+                                                 path: result.path, entry: entry, generation: generation)
         }
     }
 
@@ -148,13 +165,20 @@ final class AppStore {
     /// résultat diffère (persister ou non une nouvelle entrée), donc seule cette partie commune,
     /// coûteuse, est factorisée — et volontairement `static`/hors acteur : elle ne touche à aucun
     /// état de l'app, seulement `Task.detached` peut donc l'exécuter hors du fil principal.
-    nonisolated private static func analyze(data: Data) throws -> (parsed: ParsedMIDI, key: MusicalKey, exercises: [GeneratedExercise]) {
+    nonisolated private static func analyze(data: Data) throws
+        -> (parsed: ParsedMIDI, key: MusicalKey, exercises: [GeneratedExercise], path: ExerciseGenerator.ImportedMusicPath) {
         let parsed = try MIDIFileParser.parse(data: data)
         guard !parsed.notes.isEmpty else { throw AnalysisError.noNotes }
         let key = KeyDetector.detectKey(from: parsed.notes)
         var localRNG = SystemRandomNumberGenerator()
         let exercises = ExerciseGenerator.fromImportedMusic(notes: parsed.notes, rng: &localRNG)
-        return (parsed, key, exercises)
+        // Un second tirage, indépendant du premier : le "tout mélangé" (`exercises`, toujours
+        // servi tel quel par un `restartSession` sans thème actif) et le parcours par thème ne
+        // doivent pas partager leur générateur, sous peine de faire dépendre discrètement l'un de
+        // l'ordre d'appel de l'autre.
+        var pathRNG = SystemRandomNumberGenerator()
+        let path = ExerciseGenerator.pathFromImportedMusic(notes: parsed.notes, rng: &pathRNG)
+        return (parsed, key, exercises, path)
     }
 
     private func reportProgress(_ value: Double, generation: Int) {
@@ -168,21 +192,29 @@ final class AppStore {
     }
 
     private func applyImportResult(parsed: ParsedMIDI, key: MusicalKey, exercises: [GeneratedExercise],
-                                   fileName: String, midiData: Data, generation: Int) {
+                                   path: ExerciseGenerator.ImportedMusicPath, fileName: String, midiData: Data,
+                                   generation: Int) {
         guard generation == importGeneration else { return } // un import plus récent a pris le relais
         parsedMIDI = parsed
+        musicPath = path
         let entry = songLibrary.addSong(midiData: midiData, originalFileName: fileName,
                                         noteCount: parsed.notes.count, key: key)
         libraryEntries = songLibrary.loadEntries()
+        activeSongID = entry.id
         importState = .ready(fileName: entry.customName, noteCount: parsed.notes.count, key: key)
+        activeImportedTheme = nil
         beginSession(exercises: exercises, source: .importedMusic(fileName: entry.customName))
     }
 
     private func finishLoadingLibrarySong(parsed: ParsedMIDI, exercises: [GeneratedExercise],
-                                          entry: SongLibraryEntry, generation: Int) {
+                                          path: ExerciseGenerator.ImportedMusicPath, entry: SongLibraryEntry,
+                                          generation: Int) {
         guard generation == importGeneration else { return }
         parsedMIDI = parsed
+        musicPath = path
+        activeSongID = entry.id
         importState = .ready(fileName: entry.customName, noteCount: parsed.notes.count, key: entry.key)
+        activeImportedTheme = nil
         beginSession(exercises: exercises, source: .importedMusic(fileName: entry.customName))
     }
 
@@ -195,17 +227,35 @@ final class AppStore {
         // Le morceau qu'on est peut-être en train de réviser porte encore l'ANCIEN nom dans
         // `importState`/`source` tant qu'on ne les met pas à jour ici — un renommage qui
         // n'apparaîtrait qu'après avoir quitté puis rouvert l'exercice serait déroutant.
-        if case .ready(_, let noteCount, let key) = importState,
-           case .importedMusic = source,
-           let renamed = libraryEntries.first(where: { $0.id == id }) {
-            importState = .ready(fileName: renamed.customName, noteCount: noteCount, key: key)
-            source = .importedMusic(fileName: renamed.customName)
-        }
+        //
+        // `activeSongID == id`, pas seulement "une session importée est active" : sans cette
+        // vérification, renommer N'IMPORTE QUEL AUTRE morceau de la bibliothèque pendant qu'on
+        // révise en écrasait silencieusement le nom affiché avec celui du morceau renommé — deux
+        // morceaux différents partageant la même condition générale ("un import est en cours"),
+        // confondus faute de comparer leurs IDENTIFIANTS.
+        guard activeSongID == id,
+              case .ready(_, let noteCount, let key) = importState,
+              let renamed = libraryEntries.first(where: { $0.id == id }) else { return }
+        importState = .ready(fileName: renamed.customName, noteCount: noteCount, key: key)
+        source = .importedMusic(fileName: renamed.customName)
     }
 
+    /// Supprimer un morceau qui n'est PAS celui en cours de révision ne doit toucher QUE la
+    /// bibliothèque — voir `activeSongID`. Supprimer CELUI en cours, en revanche, doit vider toute
+    /// la session : sans ce second cas, régression exacte signalée — après avoir tout supprimé
+    /// dans "Mes chansons", l'app continuait de proposer les exercices et le parcours de l'ancien
+    /// morceau, et l'accueil restait bloqué sur son état "prêt" alors que plus rien n'existe sur
+    /// disque pour le justifier.
     func deleteSong(id: UUID) {
         songLibrary.delete(id: id)
         libraryEntries = songLibrary.loadEntries()
+        guard activeSongID == id else { return }
+        activeSongID = nil
+        activeImportedTheme = nil
+        parsedMIDI = nil
+        musicPath = nil
+        importState = .empty
+        beginSession(exercises: [], source: .none)
     }
 
     // MARK: - Depuis une gamme choisie, sans morceau
@@ -216,7 +266,22 @@ final class AppStore {
     /// `parsedMIDI` — cette session peut démarrer même si aucun fichier n'a jamais été importé.
     func startScaleFocus(key: MusicalKey, focus: ExerciseGenerator.ScaleFocus) {
         let generated = ExerciseGenerator.scaleExercises(key: key, focus: focus, rng: &rng)
+        activeImportedTheme = nil
         beginSession(exercises: generated, source: .scaleFocus(key, focus))
+    }
+
+    // MARK: - Le parcours d'un morceau importé : un thème à la fois
+
+    /// Démarre une session sur UN SEUL thème du parcours (voir `MusicPathView`) — "je veux
+    /// travailler les accords de CE morceau", pas la totalité mélangée. Le nom du thème s'ajoute à
+    /// celui du morceau dans le titre affiché en session (`ExerciseSource.title` l'utilise tel
+    /// quel), sans qu'`ExerciseSource` ait besoin de porter le thème lui-même — `restartSession`
+    /// retrouve le thème actif séparément, via `activeImportedTheme`.
+    func startImportedMusicFocus(_ theme: ExerciseGenerator.ImportedMusicTheme) {
+        guard case .ready(let fileName, _, _) = importState else { return }
+        activeImportedTheme = theme.focus
+        beginSession(exercises: theme.exercises,
+                    source: .importedMusic(fileName: "\(fileName) — \(theme.focus.displayName)"))
     }
 
     // MARK: - Session d'exercices, commune aux deux sources
@@ -269,6 +334,17 @@ final class AppStore {
         case .none: return
         case .importedMusic:
             guard let parsedMIDI else { return }
+            // Un thème précis était actif (voir `startImportedMusicFocus`) : recommencer doit
+            // rejouer CE thème avec un nouveau tirage, pas repartir sur le morceau entier mélangé
+            // — sans quoi "recommencer" depuis "Accords" aurait silencieusement fait réapparaître
+            // des exercices d'intervalles.
+            if let activeImportedTheme {
+                let freshPath = ExerciseGenerator.pathFromImportedMusic(notes: parsedMIDI.notes, rng: &rng)
+                musicPath = freshPath
+                guard let theme = freshPath.themes.first(where: { $0.focus == activeImportedTheme }) else { return }
+                beginSession(exercises: theme.exercises, source: source)
+                return
+            }
             let generated = ExerciseGenerator.fromImportedMusic(notes: parsedMIDI.notes, rng: &rng)
             beginSession(exercises: generated, source: source)
         case .scaleFocus(let key, let focus):

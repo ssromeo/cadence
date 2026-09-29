@@ -38,12 +38,23 @@ struct PianoOctavePicker: View {
                     whiteKey(pitchClass: pitchClass)
                 }
             }
+            // `.position(x:y:)`, PAS `.offset()` depuis l'alignement `.topLeading` du `ZStack` —
+            // bogue de rendu confirmé sur ce SDK (bêta), un quatrième après ceux déjà documentés
+            // dans `LiquidGlass.swift`, `StaffView.swift` et `QuizView.libraryButtonOverlay` :
+            // une touche noire positionnée par `.offset()` peignait décalée d'environ une demi
+            // touche blanche vers la droite, comme si son ancre `.topLeading` n'était pas (0, 0)
+            // mais celle de la touche blanche suivante. `.position()` fixe le CENTRE de la vue à
+            // un point absolu, sans passer par le calcul d'ancrage qui semble en cause ici — le
+            // même détour déjà éprouvé pour placer les nœuds de `ScalePathView`.
             ForEach(Array(Self.blackKeys.enumerated()), id: \.offset) { _, entry in
                 blackKey(afterWhiteIndex: entry.afterWhiteIndex, pitchClass: entry.pitchClass)
+                    .position(x: CGFloat(entry.afterWhiteIndex + 1) * whiteKeyWidth, y: blackKeyHeight / 2)
             }
         }
         .frame(width: width, height: height)
     }
+
+    private var blackKeyHeight: CGFloat { height * 0.6 }
 
     // MARK: - Touches
 
@@ -86,8 +97,6 @@ struct PianoOctavePicker: View {
 
     private func blackKey(afterWhiteIndex: Int, pitchClass: Int) -> some View {
         let blackWidth = whiteKeyWidth * 0.62
-        let blackHeight = height * 0.6
-        let x = CGFloat(afterWhiteIndex + 1) * whiteKeyWidth
 
         return Button {
             guard tappedClass == nil else { return }
@@ -102,12 +111,11 @@ struct PianoOctavePicker: View {
                         .padding(.bottom, 8)
                 }
             }
-            .frame(width: blackWidth, height: blackHeight)
+            .frame(width: blackWidth, height: blackKeyHeight)
             .background(fillColor(for: pitchClass, base: C.ink))
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(tappedClass != nil)
-        .offset(x: x - blackWidth / 2, y: 0)
     }
 }

@@ -15,10 +15,15 @@ let package = Package(
     name: "CadenceCore",
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
-        .library(name: "CadenceCore", targets: ["CadenceCore"])
+        .library(name: "CadenceCore", targets: ["CadenceCore"]),
+        // Un exécutable, pas juste une bibliothèque de plus : `cadence-debug` s'installe et se
+        // lance depuis le terminal (`swift run cadence-debug <fichier.mid>`), pour la même raison
+        // que `CadenceCoreTests` existe déjà — voir `Sources/cadence-debug/main.swift`.
+        .executable(name: "cadence-debug", targets: ["cadence-debug"])
     ],
     targets: [
         .target(name: "CadenceCore"),
+        .executableTarget(name: "cadence-debug", dependencies: ["CadenceCore"]),
         .testTarget(name: "CadenceCoreTests", dependencies: ["CadenceCore"])
     ]
 )

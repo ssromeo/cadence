@@ -80,6 +80,66 @@ final class HarmonicAnalyzerTests: XCTestCase {
         XCTAssertEqual(intervals[0].semitones, 2)
     }
 
+    // MARK: - `melodicLine` : isoler une voix, y compris quand le fichier n'en distingue aucune
+
+    func testMelodicLinePicksTheHighestAveragePitchTrack() {
+        // Deux pistes, comme un export de logiciel de notation qui sépare les mains : la mélodie
+        // (aiguë) doit être retenue, jamais la basse.
+        let melody = [MIDINoteEvent(pitch: 72, velocity: 80, startSeconds: 0, durationSeconds: 0.4, track: 0, channel: 0),
+                     MIDINoteEvent(pitch: 74, velocity: 80, startSeconds: 1, durationSeconds: 0.4, track: 0, channel: 0)]
+        let bass = [MIDINoteEvent(pitch: 36, velocity: 80, startSeconds: 0, durationSeconds: 0.4, track: 1, channel: 0),
+                   MIDINoteEvent(pitch: 38, velocity: 80, startSeconds: 1, durationSeconds: 0.4, track: 1, channel: 0)]
+
+        let line = HarmonicAnalyzer.melodicLine(from: melody + bass)
+
+        XCTAssertEqual(line.map(\.pitch), [72, 74])
+    }
+
+    func testMelodicLineKeepsAGenuinelyMonophonicSingleTrack() {
+        // Une seule piste/canal, mais SANS recouvrement — un vrai instrument monophonique (une
+        // flûte, par exemple) capturé sur un seul canal MIDI. Aucune autre voix pour la
+        // départager : tout le flux doit rester la ligne mélodique, comme avant ce correctif.
+        let notes = (0..<8).map { i in
+            MIDINoteEvent(pitch: 60 + i, velocity: 80, startSeconds: Double(i) * 0.4, durationSeconds: 0.35,
+                         track: 0, channel: 0)
+        }
+
+        let line = HarmonicAnalyzer.melodicLine(from: notes)
+
+        XCTAssertEqual(line.count, 8, "un flux réellement monophonique ne doit rien perdre")
+    }
+
+    /// Régression exacte du bogue signalé sur un fichier réel ("Comptine d'un autre été", capture
+    /// Rousseau MIDI) : main droite ET main gauche sur LA MÊME piste et LE MÊME canal — comme tout
+    /// fichier de performance capturé au clavier plutôt qu'exporté depuis un logiciel de notation.
+    /// Avant ce correctif, `melodicLine` traitait alors la totalité du morceau comme "la mélodie"
+    /// (aucune note ne partageant exactement le même timestamp à la milliseconde près dans un
+    /// fichier humanisé, rien n'était filtré) : un exercice d'intervalle tiré de ce flux montrait
+    /// deux notes prises au hasard entre les deux mains, sans rapport avec la ligne imprimée à
+    /// l'endroit indiqué ("je regarde la mesure 18 sur le PDF et ce n'est pas la même chose").
+    func testMelodicLineIsEmptyWhenASingleVoiceMixesTwoHandsWithHeavyOverlap() {
+        var notes: [MIDINoteEvent] = []
+        for i in 0..<20 {
+            let start = Double(i) * 0.35
+            // Main droite : notes courtes et aiguës, l'une après l'autre.
+            notes.append(MIDINoteEvent(pitch: 64 + (i % 5), velocity: 80, startSeconds: start,
+                                       durationSeconds: 0.3, track: 0, channel: 0))
+            // Main gauche : une note grave TENUE, qui chevauche largement plusieurs notes de main
+            // droite qui l'entourent — exactement le motif "arpège tenu sous une ligne rapide" du
+            // fichier réel qui a déclenché ce correctif.
+            if i % 4 == 0 {
+                notes.append(MIDINoteEvent(pitch: 40, velocity: 80, startSeconds: start,
+                                           durationSeconds: 1.3, track: 0, channel: 0))
+            }
+        }
+
+        let line = HarmonicAnalyzer.melodicLine(from: notes)
+
+        XCTAssertTrue(line.isEmpty,
+                      "une seule voix MIDI mélangeant deux mains avec un fort recouvrement ne doit " +
+                      "jamais être traitée comme une ligne mélodique fiable")
+    }
+
     // MARK: - Repli des mesures répétées (barre de reprise)
 
     private func note(_ pitch: Int, at start: Double, measure: Int, track: Int = 0) -> MIDINoteEvent {
@@ -129,5 +189,48 @@ final class HarmonicAnalyzerTests: XCTestCase {
 
         XCTAssertEqual(map[1], 1)
         XCTAssertEqual(map[2], 2, "l'accompagnement diffère : ce n'est pas la même mesure")
+    }
+
+    /// Régression exacte du bogue signalé sur un vrai fichier ("Drowning Love [With Key
+    /// Change]") : une mesure ISOLÉE qui, par pur hasard, reprend le motif d'une mesure
+    /// antérieure — sans qu'aucune mesure VOISINE ne corresponde elle aussi — ne doit JAMAIS être
+    /// repliée. Un riff répétitif (très courant dans un morceau pop/rock) produit sans arrêt ce
+    /// genre de coïncidences ponctuelles ; seul un VRAI bloc d'au moins deux mesures consécutives
+    /// identiques trahit une reprise réellement engravée dans la partition. Avant ce correctif, la
+    /// mesure 15 du fichier réel se repliait ainsi à tort sur la mesure 13 (mesure 14, entre les
+    /// deux, ne correspondant à rien), produisant ensuite des étiquettes d'exercice absurdes —
+    /// "Mesure 14 et 13" (ordre inversé) et "Mesure 13 et 16" (saute 14 et 15).
+    func testCanonicalMeasureMapNeverFoldsAnIsolatedSingleMeasureCoincidence() {
+        let notes = [
+            note(60, at: 0, measure: 1), note(64, at: 0.5, measure: 1),   // motif A
+            note(67, at: 1.0, measure: 2),                                 // motif B, unique
+            note(71, at: 1.5, measure: 3),                                 // motif C, unique
+            note(60, at: 2.0, measure: 4), note(64, at: 2.5, measure: 4), // = motif A, mais SEULE
+            note(74, at: 3.0, measure: 5),                                 // motif D, unique : rien ne confirme
+        ]
+
+        let map = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+
+        XCTAssertEqual(map[4], 4,
+                       "la mesure 4 reprend le motif de la mesure 1, mais AUCUNE mesure voisine ne " +
+                       "confirme une vraie reprise — elle doit garder son propre numéro")
+    }
+
+    /// Vérifie le pendant positif du test ci-dessus : un VRAI bloc de deux mesures consécutives
+    /// identiques à un bloc antérieur DOIT rester replié, y compris quand il fait suite à une
+    /// coïncidence isolée qu'il ne faut pas confondre avec lui.
+    func testCanonicalMeasureMapFoldsATwoMeasureBlockEvenAfterAnUnrelatedCoincidence() {
+        let notes = [
+            note(60, at: 0, measure: 1), note(64, at: 0.5, measure: 1),   // bloc A, mesure 1
+            note(67, at: 1.0, measure: 2),                                 // bloc A, mesure 2
+            note(71, at: 1.5, measure: 3),                                 // motif isolé, sans lien
+            note(60, at: 2.0, measure: 4), note(64, at: 2.5, measure: 4), // reprise RÉELLE du bloc A...
+            note(67, at: 3.0, measure: 5),                                 // ...sur DEUX mesures consécutives
+        ]
+
+        let map = HarmonicAnalyzer.canonicalMeasureMap(for: notes)
+
+        XCTAssertEqual(map[4], 1, "la mesure 4 démarre un vrai bloc de deux mesures identique au bloc 1-2")
+        XCTAssertEqual(map[5], 2, "la mesure 5 confirme ce même bloc, elle doit se replier avec lui")
     }
 }

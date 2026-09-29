@@ -16,8 +16,21 @@ struct QuizView: View {
     @Environment(AppStore.self) private var store
     @State private var selected: Int?
     @State private var pianoTappedClass: Int?
-    @State private var answerMode: AnswerMode = .qcm
+    @State private var answerMode: AnswerMode = Self.initialAnswerMode
     @State private var showLibrary = false
+
+    /// `.qcm` en usage normal — ce crochet ne fait que permettre d'ouvrir directement en mode
+    /// Clavier pour une capture d'écran déterministe (voir le crochet `#if DEBUG` de `RootView`,
+    /// même philosophie : vérifier par capture plutôt qu'en simulant un tap dont les coordonnées
+    /// ne sont pas fiables sur un simulateur dont la fenêtre peut bouger). Jamais actif en usage
+    /// réel : la variable d'environnement n'existe que si on la pose explicitement au lancement.
+    private static var initialAnswerMode: AnswerMode {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CADENCE_PREVIEW_KEYBOARD"] != nil ? .keyboard : .qcm
+        #else
+        .qcm
+        #endif
+    }
 
     /// La bibliothèque de morceaux n'a de sens que pour un morceau IMPORTÉ — pas au milieu d'un
     /// parcours de gamme (voir `ScalePathView`, qui embarque aussi `QuizView`) : "Mes chansons"

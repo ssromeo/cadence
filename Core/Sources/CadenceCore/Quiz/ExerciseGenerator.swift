@@ -16,6 +16,21 @@ public enum ExerciseGenerator {
     /// morceau — le principe différenciant du pilier 1 : on s'entraîne sur SA musique.
     public static func fromImportedMusic(notes: [MIDINoteEvent],
                                          rng: inout some RandomNumberGenerator) -> [GeneratedExercise] {
+        let context = songContext(for: notes)
+        var exercises = intervalExercises(from: notes, canonicalMeasure: context.canonicalMeasure,
+                                          localKeys: context.localKeys, rng: &rng)
+        exercises += chordExercises(from: notes, canonicalMeasure: context.canonicalMeasure,
+                                    localKeys: context.localKeys, rng: &rng)
+        exercises.shuffle(using: &rng)
+        return exercises
+    }
+
+    /// Ce que `fromImportedMusic` ET `pathFromImportedMusic` doivent tous deux connaître avant de
+    /// fabriquer le moindre exercice — factorisé pour que les deux ne puissent jamais diverger sur
+    /// LA MÊME question ("cette mesure est-elle une reprise ?", "quelle tonalité y règne ?") en
+    /// calculant chacun sa propre réponse séparément.
+    private static func songContext(for notes: [MIDINoteEvent])
+        -> (canonicalMeasure: [Int: Int], localKeys: [Int: MusicalKey]) {
         // Calculée UNE fois pour tout le morceau — voir `HarmonicAnalyzer.canonicalMeasureMap` :
         // un fichier exporté avec une reprise déjà "déroulée" numérote sinon deux fois la même
         // mesure imprimée, la seconde fois sous un numéro qui n'existe nulle part sur la partition.
@@ -25,10 +40,83 @@ public enum ExerciseGenerator {
         // différentes sous prétexte que leurs fenêtres de détection, centrées chacune sur SA
         // propre note, glissaient légèrement l'une par rapport à l'autre.
         let localKeys = localKeysByMeasure(notes: notes, canonicalMeasure: canonicalMeasure)
-        var exercises = intervalExercises(from: notes, canonicalMeasure: canonicalMeasure, localKeys: localKeys, rng: &rng)
-        exercises += chordExercises(from: notes, canonicalMeasure: canonicalMeasure, localKeys: localKeys, rng: &rng)
-        exercises.shuffle(using: &rng)
-        return exercises
+        return (canonicalMeasure, localKeys)
+    }
+
+    // MARK: - Le parcours d'un morceau importé : que travailler dans CE fichier précis
+
+    /// UN thème du parcours tiré d'un morceau importé — la même idée que `ScaleFocus` pour une
+    /// gamme choisie (voir plus bas), mais dont le contenu vient des notes RÉELLEMENT présentes
+    /// dans le fichier plutôt que d'une théorie appliquée à une tonalité abstraite.
+    public struct ImportedMusicTheme: Identifiable, Sendable {
+        public var id: String { focus.rawValue }
+        public let focus: ScaleFocus
+        public let exercises: [GeneratedExercise]
+    }
+
+    /// Le parcours COMPLET tiré d'un morceau importé : quels thèmes ce fichier permet de
+    /// travailler, et dans quel ordre les proposer.
+    public struct ImportedMusicPath: Sendable {
+        public let key: MusicalKey
+        /// Du thème le mieux représenté dans CE morceau au moins représenté — un fichier riche en
+        /// accords mais pauvre en grands sauts mélodiques doit mettre "Accords" en avant, pas
+        /// suivre un ordre fixe pensé pour une gamme choisie à la main. "Rapidité" (qui ne fait que
+        /// mélanger les autres) reste toujours en dernier : ce n'est pas un contenu propre à ce
+        /// morceau, juste un entraînement combiné une fois les autres thèmes déjà abordés. Les
+        /// thèmes sans le moindre exercice (aucun accord identifiable dans le fichier, par
+        /// exemple) sont exclus plutôt que montrés vides.
+        public let themes: [ImportedMusicTheme]
+    }
+
+    /// Analyse un morceau importé et en tire un PARCOURS — "qu'est-ce que je devrais travailler
+    /// dans CE fichier précis ?" — plutôt qu'un unique tas d'exercices mélangés sans distinction
+    /// (voir `fromImportedMusic`, toujours disponible pour cet usage-là, par exemple pour
+    /// recommencer une session déjà commencée).
+    ///
+    /// **Pourquoi ça ne recourt à aucun modèle, CoreML ou autre.** "Que travailler dans ce
+    /// morceau" se répond entièrement avec la théorie déjà en place : quels intervalles et quels
+    /// accords y apparaissent RÉELLEMENT (voir `intervalExercises`/`chordExercises`, tirés des
+    /// notes du fichier), dans quelle tonalité il est écrit (`KeyDetector`, qui sert aussi
+    /// `Degrés`/`Notes`/`Armure` — ces trois thèmes appliquent EXACTEMENT les mêmes fonctions que
+    /// `fromScale` utilise pour une gamme choisie à la main, simplement nourries de la tonalité
+    /// DÉTECTÉE de ce morceau plutôt que d'un choix explicite). Un modèle entraîné n'apporterait
+    /// rien ici : il n'y a pas de données d'entraînement disponibles, et la question posée
+    /// ("quels intervalles/accords/degrés ce fichier contient-il ?") est un calcul exact, pas une
+    /// estimation statistique.
+    public static func pathFromImportedMusic(notes: [MIDINoteEvent],
+                                              rng: inout some RandomNumberGenerator) -> ImportedMusicPath {
+        let key = KeyDetector.detectKey(from: notes)
+        let context = songContext(for: notes)
+
+        let intervalEx = intervalExercises(from: notes, canonicalMeasure: context.canonicalMeasure,
+                                           localKeys: context.localKeys, rng: &rng)
+        let chordEx = chordExercises(from: notes, canonicalMeasure: context.canonicalMeasure,
+                                     localKeys: context.localKeys, rng: &rng)
+        let degreeEx = scaleDegreeExercises(key: key, rng: &rng)
+        let namingEx = noteSpellingExercises(key: key, rng: &rng)
+        let keySignatureEx = [keySignatureExercise(key: key, rng: &rng)]
+
+        var themes: [ImportedMusicTheme] = [
+            ImportedMusicTheme(focus: .intervals, exercises: intervalEx),
+            ImportedMusicTheme(focus: .chords, exercises: chordEx),
+            ImportedMusicTheme(focus: .degrees, exercises: degreeEx),
+            ImportedMusicTheme(focus: .noteNames, exercises: namingEx),
+            ImportedMusicTheme(focus: .keySignature, exercises: keySignatureEx),
+        ]
+        .filter { !$0.exercises.isEmpty }
+        .sorted { $0.exercises.count > $1.exercises.count }
+
+        // Toujours en dernier, jamais trié par sa propre taille : "Rapidité" ne contient rien qui
+        // n'existe pas déjà dans les thèmes précédents, ce n'est qu'un mélange des trois familles
+        // tirées du morceau — la mettre en avant sur la seule base d'un grand nombre d'exercices
+        // ferait passer un simple remix avant le contenu qu'il remixe.
+        var speedPool = intervalEx + chordEx + namingEx
+        speedPool.shuffle(using: &rng)
+        if !speedPool.isEmpty {
+            themes.append(ImportedMusicTheme(focus: .speed, exercises: speedPool))
+        }
+
+        return ImportedMusicPath(key: key, themes: themes)
     }
 
     /// Calcule la tonalité locale UNE FOIS par mesure imprimée (après repli des répétitions —
@@ -74,24 +162,18 @@ public enum ExerciseGenerator {
         // dernière note de la mélodie et la note de basse suivante : une paire qui n'existe pas
         // musicalement, sans réponse juste possible.
         let melody = HarmonicAnalyzer.melodicLine(from: notes)
-        let coherentIntervals = HarmonicAnalyzer.melodicIntervals(from: melody).filter {
-            // Un silence trop long entre deux notes veut dire qu'on a franchi une frontière de
-            // phrase, pas qu'on a bougé d'un intervalle : la relation qu'on demanderait de nommer
-            // ne serait plus un geste mélodique continu. La frontière de MESURE, elle, n'est pas
-            // un critère d'exclusion : deux notes réellement consécutives dans le morceau (aucun
-            // silence entre elles) forment un intervalle valide même quand l'une appartient à la
-            // mesure imprimée précédente et l'autre à la suivante — un enchaînement rapide en fin
-            // de mesure en est un exemple courant. Ce qui rendait ça illisible n'était pas
-            // l'intervalle lui-même mais l'affichage : un exercice étiqueté "Mesure 13" tout court
-            // alors que sa seconde note vit dans la mesure 14 semblait "inventer" une note absente
-            // de la page. La correction porte sur l'étiquette (voir plus bas, `sourceMeasureEnd`
-            // et `GeneratedExercise.sourceMeasureLabel`), pas sur l'exclusion de la paire.
-            $0.to.startSeconds - $0.from.startSeconds <= 2.0
-        }
+        let coherentIntervals = HarmonicAnalyzer.melodicIntervals(from: melody).filter(isMusicallyContinuous)
         return coherentIntervals.map { interval in
             let choices = intervalChoices(correct: interval.quality, rng: &rng)
             let measure = canonicalMeasure[interval.from.measure] ?? interval.from.measure
-            let measureEnd = canonicalMeasure[interval.to.measure] ?? interval.to.measure
+            // Repli côté "fin" SANS jamais reculer par rapport à "début" — voir `endMeasureLabel`
+            // juste en dessous : régression exacte d'un bogue trouvé sur un vrai fichier
+            // ("Drowning Love [With Key Change]", seconde répétition du couplet) où une mesure
+            // JAMAIS repliée (fin d'un couplet, unique) précédait une mesure repliée sur un
+            // numéro bien plus PETIT (le début du couplet suivant, qui reprend le motif du tout
+            // premier couplet) — l'étiquette affichait alors "Mesure 31 et 16", des numéros dans
+            // le mauvais sens.
+            let measureEnd = endMeasureLabel(for: interval.to.measure, from: measure, canonicalMeasure: canonicalMeasure)
             // LOCALE, pas globale — voir `GeneratedExercise.displayKey` : un morceau qui module
             // n'a pas une seule tonalité pour tout le fichier, donc pas davantage une seule
             // convention d'écriture pour chaque exercice qui en est tiré. Prise dans `localKeys`
@@ -109,9 +191,71 @@ public enum ExerciseGenerator {
                 correctIndex: choices.firstIndex(of: interval.quality)!,
                 explanation: intervalExplanation(interval.quality),
                 sourceMeasure: measure,
-                sourceMeasureEnd: measureEnd == measure ? nil : measureEnd,
+                sourceMeasureEnd: measureEnd,
                 displayKey: localKey)
         }
+    }
+
+    /// La mesure de FIN à afficher pour un intervalle qui enjambe une frontière — `nil` s'il reste
+    /// contenu dans une seule mesure IMPRIMÉE, mais aussi (et c'est le point de ce correctif) si
+    /// la mesure de fin résolue tombe NUMÉRIQUEMENT AVANT celle de début.
+    ///
+    /// **Pourquoi ce second cas est possible.** `canonicalMeasure` replie chaque mesure sur le
+    /// numéro de sa PREMIÈRE apparition (voir `HarmonicAnalyzer.canonicalMeasureMap`) — rien
+    /// n'empêche donc, sur un morceau qui reprend une section entière plus loin (un second
+    /// couplet identique au premier, très courant en pop/rock), qu'une mesure jamais repliée
+    /// (la fin de ce second couplet, unique) soit immédiatement suivie d'une mesure repliée sur
+    /// un numéro bien plus PETIT (le début du couplet SUIVANT, qui recommence à reprendre le tout
+    /// premier). Un exercice tiré de cette frontière affichait alors "Mesure 31 et 16" — des
+    /// numéros dans le mauvais sens, aussi déroutant qu'inventé aux yeux de qui compare avec la
+    /// partition imprimée. Réduire ce cas à une étiquette à un seul numéro (celui de début) reste
+    /// toujours vrai : l'intervalle existe bel et bien à cet endroit du morceau, seule la SECONDE
+    /// mesure — dont le repli ne peut plus être présenté de façon lisible — disparaît de
+    /// l'étiquette.
+    private static func endMeasureLabel(for toMeasure: Int, from measure: Int,
+                                        canonicalMeasure: [Int: Int]) -> Int? {
+        let resolved = canonicalMeasure[toMeasure] ?? toMeasure
+        return resolved > measure ? resolved : nil
+    }
+
+    /// Vrai quand DEUX notes consécutives de la mélodie s'enchaînent vraiment — sans le moindre
+    /// SILENCE NOTÉ entre elles — et forment donc un vrai geste mélodique continu, la seule chose
+    /// qu'un exercice d'intervalle doit demander de nommer.
+    ///
+    /// **Le problème que ça résout.** Régression exacte d'un bogue trouvé sur un vrai fichier
+    /// ("Drowning Love [With Key Change]") : la mesure 9 y contient deux groupes de notes séparés
+    /// par un soupir écrit (voir la partition — un silence, pas juste une note qui traîne). Le
+    /// filtre précédent ne comparait que l'écart entre les deux ATTAQUES à un plafond absolu de 2
+    /// secondes, sans jamais regarder si la PREMIÈRE note avait fini de sonner avant que la
+    /// seconde n'attaque — un silence de 137 ms entre une note qui dure elle-même 135 ms passait
+    /// donc la même paire pour "continue" que deux croches immédiatement collées. Le résultat
+    /// jouait juste musicalement (aucune note n'était sautée), mais se lisait mal sur la page :
+    /// deux notes qu'on ne voit jamais "à la suite" sans un temps de silence dessiné entre elles,
+    /// contrairement à ce qu'un exercice d'intervalle laisse croire.
+    ///
+    /// **La méthode : comparer le SILENCE, pas l'écart total.** `to.startSeconds -
+    /// from.endSeconds` vaut environ ZÉRO pour deux notes réellement collées, QUELLE QUE SOIT la
+    /// vitesse du morceau — une ronde suivie immédiatement d'une autre ronde a un silence nul,
+    /// exactement comme deux doubles-croches collées, alors que l'écart total entre leurs attaques
+    /// diffère follement. Comparer directement les ATTAQUES (l'ancien critère) n'a donc de sens
+    /// que rapporté à la durée des notes elles-mêmes — ce que ce nouveau critère fait précisément,
+    /// sans jamais avoir besoin de connaître le tempo.
+    ///
+    /// **Les deux seuils.** Un plancher absolu (80 ms) laisse la marge voulue à la microscopique
+    /// désynchronisation d'un enregistrement humain (jamais deux notes réellement jouées "collées"
+    /// ne tombent à la milliseconde près) sans jamais confondre ça avec un demi-soupir à tempo
+    /// lent. Une fraction de la durée de la note de départ (30 %) élargit un peu cette marge sur
+    /// une note longue, dont le relâchement naturel peut légèrement anticiper l'attaque suivante
+    /// sans qu'il s'agisse d'un silence noté pour autant.
+    ///
+    /// La frontière de MESURE, elle, n'est TOUJOURS PAS un critère d'exclusion : deux notes
+    /// réellement collées forment un intervalle valide même à cheval sur deux mesures imprimées —
+    /// voir `GeneratedExercise.sourceMeasureLabel`, qui nomme alors les deux mesures plutôt que
+    /// d'en cacher une.
+    private static func isMusicallyContinuous(_ interval: MelodicInterval) -> Bool {
+        let silence = interval.to.startSeconds - interval.from.endSeconds
+        let tolerance = max(0.08, interval.from.durationSeconds * 0.3)
+        return silence <= tolerance
     }
 
     /// Reconstruit la paire de hauteurs à AFFICHER depuis la seule qualité SIMPLE de l'intervalle
